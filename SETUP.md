@@ -85,6 +85,20 @@ curl http://localhost:3000/api/health
 - `"ok":false` → read the `error`/`hint`. Usual causes: wrong/missing `GOOGLE_PRIVATE_KEY` format,
   sheet not shared with the service account, no `places` tab, or wrong `GOOGLE_SHEET_ID`.
 
+### ⚠️ Corporate network (TLS inspection) — local dev only
+
+On the KBANK network, a TLS-inspection proxy re-signs HTTPS with an internal CA that Node does
+not trust by default, so the Sheets call fails with `unable to get local issuer certificate`.
+Fix (already applied on this machine): point Node at the Windows trust store via a PEM bundle.
+
+- A bundle was exported to `C:\Users\<you>\corporate-ca-bundle.pem` and the **user env var**
+  `NODE_EXTRA_CA_CERTS` was set to it (persistent). New terminals pick it up automatically;
+  if a terminal was already open, restart it.
+- To regenerate the bundle later, re-run the export (dump `Cert:\LocalMachine\Root`,
+  `Cert:\LocalMachine\CA`, and the CurrentUser equivalents to PEM).
+- **This is needed only for local dev behind the proxy. Vercel does NOT need it** — there is no
+  inspection proxy in production, so do not set `NODE_EXTRA_CA_CERTS` in Vercel.
+
 ---
 
 ## Part E — GitHub repo (dashboard, no CLI needed)

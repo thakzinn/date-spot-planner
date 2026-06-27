@@ -74,6 +74,58 @@ export function rowToPlace(row: unknown[]): Place {
   };
 }
 
+// Fields a client may set on create/edit. Server owns id/timestamps/visited_at.
+export interface PlaceInput {
+  place_name: string;
+  lat: number;
+  lng: number;
+  maps_url: string;
+  planned_date: string;
+  category: string;
+  notes: string;
+  status?: PlaceStatus;
+}
+
+// Validate + normalize raw JSON from a request into PlaceInput, or return an
+// error message. Does NOT guess coordinates.
+export function parsePlaceInput(
+  body: unknown,
+): { ok: true; value: PlaceInput } | { ok: false; error: string } {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const place_name = str(b.place_name).trim();
+  if (!place_name) return { ok: false, error: "place_name is required" };
+
+  const lat = num(b.lat);
+  const lng = num(b.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng))
+    return { ok: false, error: "lat and lng must be numbers" };
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
+    return { ok: false, error: "lat/lng out of range" };
+
+  const planned_date = str(b.planned_date).trim();
+  if (!planned_date || Number.isNaN(Date.parse(planned_date)))
+    return { ok: false, error: "planned_date must be a valid date/time" };
+
+  const status =
+    b.status === "visited" || b.status === "cancelled" || b.status === "planned"
+      ? (b.status as PlaceStatus)
+      : undefined;
+
+  return {
+    ok: true,
+    value: {
+      place_name,
+      lat,
+      lng,
+      maps_url: str(b.maps_url).trim(),
+      planned_date,
+      category: str(b.category).trim(),
+      notes: str(b.notes),
+      status,
+    },
+  };
+}
+
 // Map a Place back to a flat row of 12 cells in column order.
 export function placeToRow(p: Place): (string | number)[] {
   return [

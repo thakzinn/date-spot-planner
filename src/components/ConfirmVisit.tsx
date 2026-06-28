@@ -39,11 +39,11 @@ type GeoState =
   | { kind: "idle" }
   | { kind: "locating" }
   | { kind: "ok"; lat: number; lng: number; accuracy: number }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; denied: boolean };
 
 function geoErrorMessage(err: GeolocationPositionError): string {
   if (err.code === err.PERMISSION_DENIED)
-    return "Location permission was denied. Enable it in your browser to check in.";
+    return "Location access is blocked for this site.";
   if (err.code === err.POSITION_UNAVAILABLE)
     return "Your location is unavailable right now. Try again outdoors.";
   if (err.code === err.TIMEOUT) return "Locating took too long. Try again.";
@@ -63,7 +63,7 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
 
   const locate = useCallback(() => {
     if (!("geolocation" in navigator)) {
-      setGeo({ kind: "error", message: "This device can't share its location." });
+      setGeo({ kind: "error", message: "This device can't share its location.", denied: false });
       return;
     }
     setGeo({ kind: "locating" });
@@ -75,17 +75,34 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
           lng: pos.coords.longitude,
           accuracy: pos.coords.accuracy,
         }),
-      (err) => setGeo({ kind: "error", message: geoErrorMessage(err) }),
+      (err) =>
+        setGeo({
+          kind: "error",
+          message: geoErrorMessage(err),
+          denied: err.code === err.PERMISSION_DENIED,
+        }),
       { enableHighAccuracy: true, timeout: 15_000, maximumAge: 0 },
     );
   }, []);
 
-  // Ask for location as soon as the page opens (unless already checked in).
-  // Deferred a tick so the effect body doesn't setState synchronously.
+  // Only auto-locate when permission is ALREADY granted (returning users). For a
+  // first visit we wait for a button tap — iOS Safari is unreliable about (and
+  // often silently denies) geolocation requests not tied to a user gesture.
+  // Calling locate() from the async .then keeps it out of the effect's sync body.
   useEffect(() => {
     if (visited) return;
-    const t = setTimeout(locate, 0);
-    return () => clearTimeout(t);
+    let cancelled = false;
+    const perms = navigator.permissions;
+    if (!perms?.query) return;
+    perms
+      .query({ name: "geolocation" as PermissionName })
+      .then((status) => {
+        if (!cancelled && status.state === "granted") locate();
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [visited, locate]);
 
   function describeNotice(notice: NoticeResult | null | undefined): string {
@@ -129,7 +146,8 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
 
   async function onCheckIn() {
     if (geo.kind !== "ok") {
-      showError("We need your current location to check in.");
+      // No fix yet — request location (this click is the user gesture iOS needs).
+      locate();
       return;
     }
     // Far from the pin? Make the user acknowledge before checking in.
@@ -151,6 +169,12 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
   }
 
   const near = distance !== null && distance <= CONFIRM_DISTANCE_THRESHOLD_M;
+  const ready = geo.kind === "ok";
+  const buttonLabel = ready
+    ? "Check in & notify"
+    : geo.kind === "locating"
+      ? "Getting your location…"
+      : "Share my location to check in";
 
   return (
     <main className="flex flex-1 items-center justify-center p-4">
@@ -173,13 +197,28 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
           <>
             <div className="rounded-lg border border-black/10 dark:border-white/15 p-3 text-sm">
               {geo.kind === "locating" && <p className="opacity-70">📍 Getting your location…</p>}
-              {geo.kind === "idle" && <p className="opacity-70">📍 Preparing…</p>}
+              {geo.kind === "idle" && (
+                <p className="opacity-70">
+                  📍 Tap below to share your location and check in.
+                </p>
+              )}
               {geo.kind === "error" && (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <p className="text-red-600">{geo.message}</p>
-                  <button onClick={locate} className="text-sm underline opacity-80">
-                    Try again
-                  </button>
+                  {geo.denied && (
+                    <div className="text-xs opacity-70">
+                      <p>To allow it on iPhone:</p>
+                      <p>• Tap the “aA” in the address bar → Website Settings → Location → Allow.</p>
+                      <p>• Or open Settings → Apps → Safari → Location.</p>
+                      <p className="mt-1">Then reload this page.</p>
+                      <button
+                        onClick={() => window.location.reload()}
+                        className="mt-1 underline opacity-80"
+                      >
+                        Reload
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
               {geo.kind === "ok" && (
@@ -210,10 +249,10 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
 
             <button
               onClick={onCheckIn}
-              disabled={busy || geo.kind !== "ok"}
+              disabled={busy || geo.kind === "locating"}
               className="w-full rounded-lg bg-green-600 px-3 py-2.5 font-medium text-white disabled:opacity-50"
             >
-              Check in & notify
+              {buttonLabel}
             </button>
 
             {place.maps_url && (

@@ -1,4 +1,4 @@
-// POST /api/extract  body { url } -> { ok, lat, lng } | { ok:false }
+// POST /api/extract  body { url } -> { ok, lat, lng, name? } | { ok:false }
 // Best-effort coordinate extraction from a Google Maps URL. Never guesses.
 import { NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
@@ -22,5 +22,5 @@ export async function POST(req: Request) {
       error: "Couldn't read coordinates from that link. Please paste lat, lng manually.",
     });
   }
-  return NextResponse.json({ ok: true, lat: coords.lat, lng: coords.lng });
+  return NextResponse.json({ ok: true, lat: coords.lat, lng: coords.lng, name: coords.name });
 }

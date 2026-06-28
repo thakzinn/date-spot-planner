@@ -7,6 +7,10 @@ export interface LatLng {
   lng: number;
 }
 
+export interface ResolvedPlace extends LatLng {
+  name?: string;
+}
+
 function valid(lat: number, lng: number): LatLng | null {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
@@ -50,6 +54,24 @@ export function extractFromUrl(url: string): LatLng | null {
   return null;
 }
 
+// Pull the place name out of a maps URL: /maps/place/<name>/@... (no network).
+// Returns null when the segment is missing or is just a coordinate pair.
+export function extractPlaceName(url: string): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    const m = u.pathname.match(/\/place\/([^/]+)/);
+    if (!m) return null;
+    const name = decodeURIComponent(m[1].replace(/\+/g, " ")).trim();
+    if (!name) return null;
+    // A plus-code or bare "lat,lng" isn't a real name — skip it.
+    if (/^-?\d+(?:\.\d+)?,\s*-?\d+(?:\.\d+)?$/.test(name)) return null;
+    return name;
+  } catch {
+    return null;
+  }
+}
+
 // SSRF guard: only these hosts may be fetched to resolve a short link.
 function isAllowedMapsHost(host: string): boolean {
   const h = host.toLowerCase();
@@ -60,12 +82,12 @@ function isAllowedMapsHost(host: string): boolean {
 }
 
 // Resolve coordinates, following a Google short link if needed. Server-only.
-export async function resolveLatLng(input: string): Promise<LatLng | null> {
+export async function resolveLatLng(input: string): Promise<ResolvedPlace | null> {
   const trimmed = (input ?? "").trim();
   if (!trimmed) return null;
 
   const direct = extractFromUrl(trimmed);
-  if (direct) return direct;
+  if (direct) return { ...direct, name: extractPlaceName(trimmed) ?? undefined };
 
   let host: string;
   try {
@@ -84,7 +106,9 @@ export async function resolveLatLng(input: string): Promise<LatLng | null> {
       redirect: "follow",
       signal: controller.signal,
     });
-    return extractFromUrl(res.url);
+    const coords = extractFromUrl(res.url);
+    if (!coords) return null;
+    return { ...coords, name: extractPlaceName(res.url) ?? undefined };
   } catch {
     return null;
   } finally {

@@ -67,7 +67,13 @@ export default function SpotForm({
       if (data.ok) {
         setLat(String(data.lat));
         setLng(String(data.lng));
-        setHint(`Got ${data.lat}, ${data.lng}`);
+        // Auto-fill the name from the link, but never clobber what's already typed.
+        if (data.name && !placeName.trim()) setPlaceName(data.name);
+        setHint(
+          data.name
+            ? `Got ${data.name} — ${data.lat}, ${data.lng}`
+            : `Got ${data.lat}, ${data.lng}`,
+        );
       } else {
         setHint(data.error ?? "Could not extract coordinates — paste lat, lng manually.");
       }
@@ -111,17 +117,7 @@ export default function SpotForm({
       <h2 className="text-lg font-semibold">{initial ? "Edit spot" : "Add a spot"}</h2>
 
       <label className="block text-sm">
-        <span className="opacity-70">Place name</span>
-        <input className={inputCls} value={placeName} onChange={(e) => setPlaceName(e.target.value)} />
-      </label>
-
-      <label className="block text-sm">
-        <span className="opacity-70">When (Asia/Bangkok)</span>
-        <DateTimePicker value={localDate} onChange={setLocalDate} />
-      </label>
-
-      <label className="block text-sm">
-        <span className="opacity-70">Google Maps link (optional — for auto coordinates)</span>
+        <span className="opacity-70">Google Maps link (optional — for auto name &amp; coordinates)</span>
         <div className="flex gap-2">
           <input
             className={inputCls}
@@ -141,6 +137,10 @@ export default function SpotForm({
       </label>
       {hint && <p className="text-xs opacity-70">{hint}</p>}
 
+      <label className="block text-sm">
+        <span className="opacity-70">Place name</span>
+        <input className={inputCls} value={placeName} onChange={(e) => setPlaceName(e.target.value)} />
+      </label>
       <div className="grid grid-cols-2 gap-2">
         <label className="block text-sm">
           <span className="opacity-70">Latitude</span>
@@ -151,6 +151,12 @@ export default function SpotForm({
           <input className={inputCls} value={lng} onChange={(e) => setLng(e.target.value)} inputMode="decimal" />
         </label>
       </div>
+
+      <label className="block text-sm">
+        <span className="opacity-70">When (Asia/Bangkok)</span>
+        <DateTimePicker value={localDate} onChange={setLocalDate} />
+      </label>
+
 
       <div className="grid grid-cols-2 gap-2">
         <label className="block text-sm">

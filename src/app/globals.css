@@ -24,3 +24,65 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* The full-length timeline spine: a plain, static faint-pink line. The animated
+   "running" segment is drawn on top of this, only as far as the next milestone. */
+.timeline-track::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: rgb(236 72 153 / 0.3);
+}
+
+/* The completed segment of the spine: a solid green line connecting the
+   already-done milestones. Height/offset set inline from a measurement. */
+.timeline-done {
+  position: absolute;
+  inset-inline-start: -2px;
+  width: 3px;
+  border-radius: 9999px;
+  background-color: #22c55e;
+}
+
+/* The rainbow segment that chases down the active (in-progress) leg, from the
+   last done milestone to the next (first not-done) one. Its height is set
+   inline from a measurement. The colour tile is a fixed pixel height so the
+   downward loop stays seamless. */
+.timeline-run {
+  position: absolute;
+  inset-inline-start: -2px;
+  top: 0;
+  width: 3px;
+  border-radius: 9999px;
+  background-image: linear-gradient(
+    to bottom,
+    #ff3b3b,
+    #ff9f1c,
+    #ffe600,
+    #2ecc71,
+    #3b82f6,
+    #9b51e0,
+    #ff3b3b
+  );
+  background-size: 3px 160px;
+  background-repeat: repeat-y;
+  animation: timeline-rainbow 1.6s linear infinite;
+}
+
+@keyframes timeline-rainbow {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 0 160px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timeline-run {
+    animation: none;
+  }
+}

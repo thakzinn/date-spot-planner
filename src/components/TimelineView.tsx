@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
 import type { Checkpoint, Milestone, Plan } from "@/lib/plans";
 import { formatBangkok } from "@/lib/format";
@@ -33,6 +33,37 @@ const STATE_DOT: Record<MilestoneState, string> = {
   upcoming: "bg-pink-500",
 };
 
+// Live, second-by-second countdown to a due date. Shows how far out the date
+// is ("อีก 18 วัน 5:32:10") and flips to an overdue read-out once it passes.
+function Countdown({ due, done }: { due: string; done?: boolean }) {
+  const target = Date.parse(due);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (done || Number.isNaN(target)) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [done, target]);
+
+  if (Number.isNaN(target) || done) return null;
+
+  const diff = target - now;
+  const overdue = diff < 0;
+  const abs = Math.abs(diff);
+  const days = Math.floor(abs / 86_400_000);
+  const h = Math.floor((abs % 86_400_000) / 3_600_000);
+  const m = Math.floor((abs % 3_600_000) / 60_000);
+  const s = Math.floor((abs % 60_000) / 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const clock = `${pad(h)}:${pad(m)}:${pad(s)}`;
+  const dayPart = days > 0 ? `${days} วัน ` : "";
+
+  return (
+    <span className={`text-xs tabular-nums ${overdue ? "text-red-600" : "opacity-70"}`}>
+      {overdue ? `เลยมาแล้ว ${dayPart}${clock}` : `อีก ${dayPart}${clock}`}
+    </span>
+  );
+}
+
 const btnPrimary = "rounded-lg bg-pink-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50";
 const btnGhost =
   "rounded-lg border border-black/15 dark:border-white/25 px-2.5 py-1 text-xs disabled:opacity-50";
@@ -55,6 +86,12 @@ export default function TimelineView({
   const [busy, setBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
+  // The form renders at the top of the view; when it opens (Edit / Add) scroll
+  // it into view so the user sees it instead of silently jumping past it.
+  const formRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (showForm) formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [showForm, editing]);
   const [notifyMembers, setNotifyMembers] = useState(false);
   // Which checkpoint's inline date editor is open (by checkpoint id), or null.
   const [openCheckpoint, setOpenCheckpoint] = useState<string | null>(null);
@@ -68,6 +105,69 @@ export default function TimelineView({
       ),
     [milestones],
   );
+
+  // Each milestone owns the spine leg *below* its own dot (the stretch beside
+  // its card). We colour those legs:
+  //  • green   — legs of milestones already done
+  //  • rainbow — the leg of the current in-progress milestone (first not-done)
+  //  • faint   — everything after (static, from the pseudo-element)
+  // `boundaryId` is the dot where green ends and the rainbow begins (the
+  // in-progress milestone's dot); `rainEndId` is the dot the rainbow runs to
+  // (the milestone after it, or the plan-due point).
+  const { boundaryId, rainEndId } = useMemo(() => {
+    const idx = ordered.findIndex((m) => m.status !== "done");
+    const planDue = plan.due_date ? "__plan_due__" : null;
+    if (idx === -1) {
+      // Every milestone is done — green covers them all, the rainbow runs the
+      // final leg toward the plan-due point.
+      return { boundaryId: ordered.length ? ordered[ordered.length - 1].id : null, rainEndId: planDue };
+    }
+    return {
+      boundaryId: ordered[idx].id,
+      rainEndId: idx + 1 < ordered.length ? ordered[idx + 1].id : planDue,
+    };
+  }, [ordered, plan.due_date]);
+
+  // Measure the pixel offsets of the segments. Re-measure when the layout
+  // changes (cards expanding, viewport resizing).
+  const trackRef = useRef<HTMLOListElement>(null);
+  const boundaryRef = useRef<HTMLLIElement>(null);
+  const rainEndRef = useRef<HTMLLIElement>(null);
+  const [runTop, setRunTop] = useState(0);
+  const [runHeight, setRunHeight] = useState(0);
+  const [greenTop, setGreenTop] = useState(0);
+  const [greenHeight, setGreenHeight] = useState(0);
+  useEffect(() => {
+    const measure = () => {
+      const ol = trackRef.current;
+      // Each dot sits at top-1.5 (6px) and is h-4 (16px) → centre is 14px down.
+      const firstLi = ol?.querySelector("li");
+      // Start at the first dot's lower edge (centre 14 + radius ≈ 20) so the
+      // line's rounded cap tucks under the circle instead of poking above it.
+      const start = firstLi ? firstLi.offsetTop + 20 : 0;
+      const boundaryC = boundaryRef.current ? boundaryRef.current.offsetTop + 14 : null;
+      const rainEndC = rainEndRef.current ? rainEndRef.current.offsetTop + 14 : null;
+
+      // Green: from the top down to (and into) the in-progress dot.
+      setGreenTop(start);
+      setGreenHeight(boundaryC != null ? Math.max(0, boundaryC - start) : 0);
+
+      // Rainbow: from the in-progress dot down to the next dot after it.
+      const rainStart = boundaryC ?? start;
+      setRunTop(rainStart);
+      setRunHeight(rainEndC != null ? Math.max(0, rainEndC - rainStart) : 0);
+    };
+    measure();
+    const ol = trackRef.current;
+    if (!ol) return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(ol);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [ordered, boundaryId, rainEndId]);
 
   const summary = useMemo(() => {
     let overdue = 0;
@@ -234,9 +334,6 @@ export default function TimelineView({
           </button>
           <h2 className="text-lg font-semibold">{plan.title}</h2>
           {plan.description && <p className="text-sm opacity-70">{plan.description}</p>}
-          {plan.due_date && (
-            <p className="text-sm opacity-70">🎯 Plan due {formatBangkok(plan.due_date)}</p>
-          )}
           {(summary.overdue > 0 || summary.today > 0) && (
             <p className="mt-1 text-sm">
               {summary.overdue > 0 && <span className="mr-2 text-red-600">⚠️ {summary.overdue} overdue</span>}
@@ -267,7 +364,7 @@ export default function TimelineView({
       </div>
 
       {showForm && (
-        <div className="rounded-xl border border-black/10 dark:border-white/15 p-4">
+        <div ref={formRef} className="scroll-mt-4 rounded-xl border border-black/10 dark:border-white/15 p-4">
           <MilestoneForm
             key={editing?.id ?? "new"}
             initial={editing}
@@ -289,7 +386,21 @@ export default function TimelineView({
       ) : (
         // Vertical timeline: a track line on the left, a coloured point per
         // milestone, the due date as a pill, and the full card beside it.
-        <ol className="relative ms-2 border-s-2 border-pink-500/30 dark:border-pink-400/25">
+        <ol ref={trackRef} className="timeline-track relative ms-2">
+          {greenHeight > 0 && (
+            <span
+              className="timeline-done"
+              style={{ top: greenTop, height: greenHeight }}
+              aria-hidden
+            />
+          )}
+          {runHeight > 0 && (
+            <span
+              className="timeline-run"
+              style={{ top: runTop, height: runHeight }}
+              aria-hidden
+            />
+          )}
           {ordered.map((m) => {
             const state = milestoneState(m.due_date, m.status === "done");
             const pill = STATE_PILL[state];
@@ -297,7 +408,13 @@ export default function TimelineView({
               m.status === "done" && m.done_at && Date.parse(m.done_at) < Date.parse(m.due_date);
             const doneCount = m.checkpoints.filter((c) => c.done).length;
             return (
-              <li key={m.id} className="relative mb-8 ms-6">
+              <li
+                key={m.id}
+                ref={
+                  m.id === boundaryId ? boundaryRef : m.id === rainEndId ? rainEndRef : undefined
+                }
+                className="relative mb-8 ms-6"
+              >
                 <span
                   className={`absolute -start-[33px] top-1.5 h-4 w-4 rounded-full ring-4 ring-white dark:ring-zinc-950 ${STATE_DOT[state]}`}
                   aria-hidden
@@ -310,6 +427,7 @@ export default function TimelineView({
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{m.title}</span>
                     <span className={`rounded-full px-2 py-0.5 text-xs ${pill.cls}`}>{pill.label}</span>
+                    <Countdown due={m.due_date} done={m.status === "done"} />
                     {m.status === "done" && m.done_at && (
                       <span className="text-xs text-green-600">
                         ✓ เสร็จ {formatBangkok(m.done_at)}{early ? " · early" : ""}
@@ -380,6 +498,7 @@ export default function TimelineView({
                               {c.title}
                             </button>
                             {c.due_date && <span className="text-xs opacity-50">· {formatBangkok(c.due_date)}</span>}
+                            {c.due_date && <Countdown due={c.due_date} done={c.done} />}
                             {c.done && c.done_at && (
                               <span className="text-xs text-green-600">✓ เช็ค {formatBangkok(c.done_at)}</span>
                             )}
@@ -412,6 +531,36 @@ export default function TimelineView({
               </li>
             );
           })}
+
+          {plan.due_date && (() => {
+            // Final point on the track: the plan's overall due date.
+            const state = milestoneState(plan.due_date, false);
+            return (
+              <li
+                ref={rainEndId === "__plan_due__" ? rainEndRef : undefined}
+                className="relative mb-2 ms-6"
+              >
+                <span
+                  className={`absolute -start-[33px] top-1.5 h-4 w-4 rounded-full ring-4 ring-white dark:ring-zinc-950 ${STATE_DOT[state]}`}
+                  aria-hidden
+                />
+                <div className="mb-2 inline-flex items-center rounded-full bg-pink-600 px-3 py-1 text-xs font-semibold text-white">
+                  {formatBangkok(plan.due_date)}
+                </div>
+
+                <div className="rounded-xl border border-pink-500/30 bg-pink-50 p-3 shadow-sm dark:border-pink-400/25 dark:bg-pink-950/20">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">🎯 Plan due</span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${STATE_PILL[state].cls}`}>
+                      {STATE_PILL[state].label}
+                    </span>
+                    <Countdown due={plan.due_date} />
+                  </div>
+                  <p className="mt-1 text-sm opacity-80">{plan.title}</p>
+                </div>
+              </li>
+            );
+          })()}
         </ol>
       )}
     </div>

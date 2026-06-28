@@ -6,7 +6,16 @@ import { useRouter } from "next/navigation";
 import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
 import type { Milestone, Plan } from "@/lib/plans";
 import { bangkokDateStr, isTodayBangkok } from "@/lib/dates";
+import { formatBangkok, isoToLocalInput, localInputToISO } from "@/lib/format";
+import DateTimePicker from "./DateTimePicker";
 import TimelineView from "./TimelineView";
+
+interface PlanPayload {
+  title: string;
+  description: string;
+  invitees: string[];
+  due_date: string;
+}
 
 export default function PlansView({
   userEmail,
@@ -82,7 +91,7 @@ export default function PlansView({
     });
   }
 
-  async function savePlan(payload: { title: string; description: string; invitees: string[] }, id: string | null) {
+  async function savePlan(payload: PlanPayload, id: string | null) {
     setBusy(true);
     showLoading(id ? "Saving plan…" : "Creating plan…");
     try {
@@ -216,6 +225,9 @@ export default function PlansView({
                       </span>
                     )}
                     {p.description && <p className="text-sm opacity-70">{p.description}</p>}
+                    {p.due_date && (
+                      <p className="text-xs opacity-60">🎯 due {formatBangkok(p.due_date)}</p>
+                    )}
                     <p className="mt-1 text-xs opacity-60">
                       {ms.length} milestone{ms.length === 1 ? "" : "s"}
                       {counts.done > 0 && ` · ${counts.done} done`}
@@ -302,11 +314,12 @@ function PlanForm({
 }: {
   initial: Plan | null;
   busy: boolean;
-  onSave: (payload: { title: string; description: string; invitees: string[] }, id: string | null) => void;
+  onSave: (payload: PlanPayload, id: string | null) => void;
   onCancel: () => void;
 }) {
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
+  const [localDue, setLocalDue] = useState(initial?.due_date ? isoToLocalInput(initial.due_date) : "");
   const [inviteesRaw, setInviteesRaw] = useState((initial?.invitees ?? []).join(", "));
   const [error, setError] = useState("");
 
@@ -318,7 +331,15 @@ function PlanForm({
     if (!title.trim()) return setError("Title is required.");
     // The server normalizes/validates emails; split loosely here.
     const invitees = inviteesRaw.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
-    onSave({ title: title.trim(), description, invitees }, initial?.id ?? null);
+    onSave(
+      {
+        title: title.trim(),
+        description,
+        invitees,
+        due_date: localDue ? localInputToISO(localDue) : "",
+      },
+      initial?.id ?? null,
+    );
   }
 
   return (
@@ -331,6 +352,13 @@ function PlanForm({
       <label className="block text-sm">
         <span className="opacity-70">Description (optional)</span>
         <textarea className={inputCls} rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+      </label>
+      <label className="block text-sm">
+        <span className="opacity-70">Overall due date (Asia/Bangkok — optional)</span>
+        <DateTimePicker value={localDue} onChange={setLocalDue} />
+        <span className="mt-1 block text-xs opacity-60">
+          Milestones can&apos;t be scheduled after this date.
+        </span>
       </label>
       <label className="block text-sm">
         <span className="opacity-70">Share with (emails, comma-separated — optional)</span>

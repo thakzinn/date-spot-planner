@@ -58,6 +58,7 @@ export async function POST(req: Request) {
     updated_by: session.email.trim().toLowerCase(),
     invitees: parsed.value.invitees,
     deleted_at: "",
+    due_date: parsed.value.due_date,
   };
 
   try {

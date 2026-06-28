@@ -13,7 +13,8 @@ import {
 } from "@/lib/plansStore";
 import { getSession } from "@/lib/auth";
 import { nowBangkokISO } from "@/lib/dates";
-import { parsePlanInput, type Plan, type PlanStatus } from "@/lib/plans";
+import { formatBangkok } from "@/lib/format";
+import { exceedsPlanDue, parsePlanInput, type Plan, type PlanStatus } from "@/lib/plans";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,12 +75,33 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
     const parsed = parsePlanInput(body);
     if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
     const v = parsed.value;
+    // If a (new/changed) plan deadline is set, it must not fall before any
+    // existing milestone or dated checkpoint — otherwise the invariant
+    // "milestone date ≤ plan due" would break silently.
+    if (v.due_date) {
+      const milestones = await getMilestonesByPlan(id);
+      const offender = milestones.find(
+        (m) =>
+          exceedsPlanDue(m.due_date, v.due_date) ||
+          m.checkpoints.some((c) => exceedsPlanDue(c.due_date, v.due_date)),
+      );
+      if (offender) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Plan due date is earlier than milestone “${offender.title}” (${formatBangkok(offender.due_date)}). Move the milestone first, or pick a later plan due date.`,
+          },
+          { status: 400 },
+        );
+      }
+    }
     updated = {
       ...existing,
       title: v.title,
       description: v.description,
       status: v.status ?? existing.status,
       invitees: v.invitees,
+      due_date: v.due_date,
       updated_at: now,
       updated_by: email,
     };

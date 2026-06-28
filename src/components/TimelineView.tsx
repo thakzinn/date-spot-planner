@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
-import type { Milestone, Plan } from "@/lib/plans";
+import type { Checkpoint, Milestone, Plan } from "@/lib/plans";
 import { formatBangkok } from "@/lib/format";
 import { nowBangkokISO, bangkokDateStr, isTodayBangkok } from "@/lib/dates";
 import MilestoneForm, { type MilestonePayload } from "./MilestoneForm";
@@ -25,6 +25,18 @@ const STATE_PILL: Record<MilestoneState, { label: string; cls: string }> = {
   upcoming: { label: "upcoming", cls: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200" },
 };
 
+// Colour of the timeline point (the dot on the track) per state.
+const STATE_DOT: Record<MilestoneState, string> = {
+  done: "bg-green-500",
+  overdue: "bg-red-500",
+  today: "bg-amber-500",
+  upcoming: "bg-pink-500",
+};
+
+const btnPrimary = "rounded-lg bg-pink-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50";
+const btnGhost =
+  "rounded-lg border border-black/15 dark:border-white/25 px-2.5 py-1 text-xs disabled:opacity-50";
+
 export default function TimelineView({
   plan,
   milestones,
@@ -44,6 +56,8 @@ export default function TimelineView({
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
   const [notifyMembers, setNotifyMembers] = useState(false);
+  // Which checkpoint's inline date editor is open (by checkpoint id), or null.
+  const [openCheckpoint, setOpenCheckpoint] = useState<string | null>(null);
 
   const ordered = useMemo(
     () =>
@@ -67,7 +81,13 @@ export default function TimelineView({
   }, [ordered]);
 
   // PUT an action to a milestone and reflect the returned record locally.
-  async function mutate(id: string, body: Record<string, unknown>, loading: string, ok: string) {
+  // Returns the updated milestone, or null if the request failed.
+  async function mutate(
+    id: string,
+    body: Record<string, unknown>,
+    loading: string,
+    ok: string,
+  ): Promise<Milestone | null> {
     setBusy(true);
     showLoading(loading);
     try {
@@ -79,12 +99,15 @@ export default function TimelineView({
       const data = await res.json();
       if (!res.ok || !data.ok) {
         showError(data.error ?? "Update failed");
-        return;
+        return null;
       }
-      onMilestoneUpsert(data.milestone as Milestone);
+      const updated = data.milestone as Milestone;
+      onMilestoneUpsert(updated);
       showSuccess(ok);
+      return updated;
     } catch (e) {
       showError(e instanceof Error ? e.message : "Update failed");
+      return null;
     } finally {
       setBusy(false);
     }
@@ -126,14 +149,51 @@ export default function TimelineView({
     const base = Date.parse(m.due_date);
     if (Number.isNaN(base)) return;
     const next = nowBangkokISO(new Date(base + days * 86_400_000));
+    // Don't let a quick-extend push a milestone past the plan's overall due.
+    if (plan.due_date && Date.parse(next) > Date.parse(plan.due_date)) {
+      showError(`Can't extend past the plan due date (${formatBangkok(plan.due_date)}). Extend the plan first.`);
+      return;
+    }
     mutate(m.id, { action: "extend", due_date: next, notify: notifyMembers }, "Extending…", "Due date moved");
   }
-  function toggleCheckpoint(m: Milestone, checkpointId: string) {
-    mutate(
+  async function toggleCheckpoint(m: Milestone, checkpointId: string) {
+    const updated = await mutate(
       m.id,
       { action: "checkpoint", op: "toggle", checkpoint: { id: checkpointId } },
       "Updating…",
       "Updated",
+    );
+    // Auto-confirm the milestone once every checkpoint is ticked off.
+    if (
+      updated &&
+      updated.status !== "done" &&
+      updated.checkpoints.length > 0 &&
+      updated.checkpoints.every((c) => c.done)
+    ) {
+      confirm(updated);
+    }
+  }
+  // Move a checkpoint's own due date out (+) or in (-) by N days. A checkpoint
+  // with no date of its own ("due with the milestone") is shifted from the
+  // milestone's due date as the base.
+  function shiftCheckpoint(m: Milestone, c: Checkpoint, days: number) {
+    const base = Date.parse(c.due_date || m.due_date);
+    if (Number.isNaN(base)) return;
+    const next = nowBangkokISO(new Date(base + days * 86_400_000));
+    // A checkpoint is a step toward its milestone — it can't fall due after it.
+    if (m.due_date && Date.parse(next) > Date.parse(m.due_date)) {
+      showError(`Can't move past the milestone due date (${formatBangkok(m.due_date)}). Extend the milestone first.`);
+      return;
+    }
+    if (plan.due_date && Date.parse(next) > Date.parse(plan.due_date)) {
+      showError(`Can't move past the plan due date (${formatBangkok(plan.due_date)}). Extend the plan first.`);
+      return;
+    }
+    mutate(
+      m.id,
+      { action: "checkpoint", op: "edit", checkpoint: { id: c.id, due_date: next } },
+      "Moving…",
+      "Date moved",
     );
   }
 
@@ -171,11 +231,12 @@ export default function TimelineView({
           </button>
           <h2 className="text-lg font-semibold">{plan.title}</h2>
           {plan.description && <p className="text-sm opacity-70">{plan.description}</p>}
+          {plan.due_date && (
+            <p className="text-sm opacity-70">🎯 Plan due {formatBangkok(plan.due_date)}</p>
+          )}
           {(summary.overdue > 0 || summary.today > 0) && (
             <p className="mt-1 text-sm">
-              {summary.overdue > 0 && (
-                <span className="mr-2 text-red-600">⚠️ {summary.overdue} overdue</span>
-              )}
+              {summary.overdue > 0 && <span className="mr-2 text-red-600">⚠️ {summary.overdue} overdue</span>}
               {summary.today > 0 && <span className="text-amber-600">🔔 {summary.today} due today</span>}
             </p>
           )}
@@ -183,11 +244,7 @@ export default function TimelineView({
         <div className="flex items-center gap-2">
           {plan.invitees.length > 0 && (
             <label className="flex items-center gap-1 text-xs opacity-70">
-              <input
-                type="checkbox"
-                checked={notifyMembers}
-                onChange={(e) => setNotifyMembers(e.target.checked)}
-              />
+              <input type="checkbox" checked={notifyMembers} onChange={(e) => setNotifyMembers(e.target.checked)} />
               Email members on changes
             </label>
           )}
@@ -212,6 +269,7 @@ export default function TimelineView({
             key={editing?.id ?? "new"}
             initial={editing}
             busy={busy}
+            planDue={plan.due_date}
             onSave={onSaveMilestone}
             onCancel={() => {
               setShowForm(false);
@@ -226,35 +284,53 @@ export default function TimelineView({
           No milestones yet. Add the first one (e.g. “บทที่ 1”).
         </p>
       ) : (
-        <ol className="relative space-y-3 border-l border-black/10 pl-4 dark:border-white/15">
+        // Vertical timeline: a track line on the left, a coloured point per
+        // milestone, the due date as a pill, and the full card beside it.
+        <ol className="relative ms-2 border-s-2 border-pink-500/30 dark:border-pink-400/25">
           {ordered.map((m) => {
             const state = milestoneState(m.due_date, m.status === "done");
             const pill = STATE_PILL[state];
             const early =
-              m.status === "done" &&
-              m.done_at &&
-              Date.parse(m.done_at) < Date.parse(m.due_date);
+              m.status === "done" && m.done_at && Date.parse(m.done_at) < Date.parse(m.due_date);
             const doneCount = m.checkpoints.filter((c) => c.done).length;
+            // Confirm is only allowed once every checkpoint is done (a
+            // milestone with no checkpoints can be confirmed directly).
+            const allChecked = m.checkpoints.every((c) => c.done);
             return (
-              <li key={m.id} className="rounded-xl border border-black/10 dark:border-white/15 p-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{m.title}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-xs ${pill.cls}`}>{pill.label}</span>
-                      {early && <span className="text-xs text-green-600">✓ early</span>}
-                    </div>
-                    <p className="text-sm opacity-70">{formatBangkok(m.due_date)}</p>
-                    {m.notes && <p className="mt-1 text-sm opacity-80">{m.notes}</p>}
+              <li key={m.id} className="relative mb-8 ms-6">
+                <span
+                  className={`absolute -start-[33px] top-1.5 h-4 w-4 rounded-full ring-4 ring-white dark:ring-zinc-950 ${STATE_DOT[state]}`}
+                  aria-hidden
+                />
+                <div className="mb-2 inline-flex items-center rounded-full bg-pink-600 px-3 py-1 text-xs font-semibold text-white">
+                  {formatBangkok(m.due_date)}
+                </div>
+
+                <div className="rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/15 dark:bg-zinc-900">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{m.title}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${pill.cls}`}>{pill.label}</span>
+                    {m.status === "done" && m.done_at && (
+                      <span className="text-xs text-green-600">
+                        ✓ เสร็จ {formatBangkok(m.done_at)}{early ? " · early" : ""}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
+                  {m.notes && <p className="mt-1 text-sm opacity-80">{m.notes}</p>}
+
+                  <div className="mt-2 flex flex-wrap gap-1.5">
                     {m.status === "done" ? (
                       <button onClick={() => reopen(m)} disabled={busy} className={btnGhost}>
                         Reopen
                       </button>
                     ) : (
                       <>
-                        <button onClick={() => confirm(m)} disabled={busy} className={btnPrimary}>
+                        <button
+                          onClick={() => confirm(m)}
+                          disabled={busy || !allChecked}
+                          title={allChecked ? undefined : "Finish all checkpoints first"}
+                          className={btnPrimary}
+                        >
                           ✓ Confirm done
                         </button>
                         <button onClick={() => extendBy(m, 1)} disabled={busy} className={btnGhost}>
@@ -278,29 +354,57 @@ export default function TimelineView({
                       Delete
                     </button>
                   </div>
-                </div>
 
-                {m.checkpoints.length > 0 && (
-                  <ul className="mt-2 space-y-1 border-t border-black/5 pt-2 dark:border-white/10">
-                    {m.checkpoints.map((c) => (
-                      <li key={c.id} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={c.done}
-                          disabled={busy}
-                          onChange={() => toggleCheckpoint(m, c.id)}
-                        />
-                        <span className={c.done ? "line-through opacity-60" : ""}>{c.title}</span>
-                        {c.due_date && (
-                          <span className="text-xs opacity-50">· {formatBangkok(c.due_date)}</span>
-                        )}
+                  {m.checkpoints.length > 0 && (
+                    <ul className="mt-2 space-y-1 border-t border-black/5 pt-2 dark:border-white/10">
+                      {m.checkpoints.map((c) => (
+                        <li key={c.id} className="text-sm">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={c.done}
+                              disabled={busy}
+                              onChange={() => toggleCheckpoint(m, c.id)}
+                            />
+                            {/* Click the title to reveal inline date controls. */}
+                            <button
+                              type="button"
+                              onClick={() => setOpenCheckpoint((id) => (id === c.id ? null : c.id))}
+                              title="คลิกเพื่อปรับวันที่"
+                              className={`text-left hover:underline ${c.done ? "line-through opacity-60" : ""}`}
+                            >
+                              {c.title}
+                            </button>
+                            {c.due_date && <span className="text-xs opacity-50">· {formatBangkok(c.due_date)}</span>}
+                            {c.done && c.done_at && (
+                              <span className="text-xs text-green-600">✓ เช็ค {formatBangkok(c.done_at)}</span>
+                            )}
+                          </div>
+                          {openCheckpoint === c.id && (
+                            <div className="ms-6 mt-1 flex flex-wrap items-center gap-1.5">
+                              <span className="text-xs opacity-50">ปรับวันที่:</span>
+                              <button onClick={() => shiftCheckpoint(m, c, -7)} disabled={busy} className={btnGhost}>
+                                -1 week
+                              </button>
+                              <button onClick={() => shiftCheckpoint(m, c, -1)} disabled={busy} className={btnGhost}>
+                                -1 day
+                              </button>
+                              <button onClick={() => shiftCheckpoint(m, c, 1)} disabled={busy} className={btnGhost}>
+                                +1 day
+                              </button>
+                              <button onClick={() => shiftCheckpoint(m, c, 7)} disabled={busy} className={btnGhost}>
+                                +1 week
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                      <li className="pt-1 text-xs opacity-50">
+                        {doneCount}/{m.checkpoints.length} checkpoints done
                       </li>
-                    ))}
-                    <li className="pt-1 text-xs opacity-50">
-                      {doneCount}/{m.checkpoints.length} checkpoints done
-                    </li>
-                  </ul>
-                )}
+                    </ul>
+                  )}
+                </div>
               </li>
             );
           })}
@@ -309,7 +413,3 @@ export default function TimelineView({
     </div>
   );
 }
-
-const btnPrimary = "rounded-lg bg-pink-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50";
-const btnGhost =
-  "rounded-lg border border-black/15 dark:border-white/25 px-2.5 py-1 text-xs disabled:opacity-50";

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Checkpoint, Milestone } from "@/lib/plans";
-import { isoToLocalInput, localInputToISO } from "@/lib/format";
+import { formatBangkok, isoToLocalInput, localInputToISO } from "@/lib/format";
 import DateTimePicker from "./DateTimePicker";
 
 export interface MilestonePayload {
@@ -30,11 +30,13 @@ function newRowKey(): string {
 export default function MilestoneForm({
   initial,
   busy,
+  planDue,
   onSave,
   onCancel,
 }: {
   initial: Milestone | null;
   busy: boolean;
+  planDue?: string; // plan's overall due date (ISO) — milestones can't exceed it
   onSave: (payload: MilestonePayload, id: string | null) => void;
   onCancel: () => void;
 }) {
@@ -68,6 +70,7 @@ export default function MilestoneForm({
     if (!title.trim()) return setError("Title is required.");
     if (!localDate) return setError("A due date/time is required.");
 
+    const dueISO = localInputToISO(localDate);
     const checkpoints: Checkpoint[] = rows
       .filter((row) => row.title.trim())
       .map((row) => ({
@@ -80,7 +83,19 @@ export default function MilestoneForm({
         done_at: row.done_at,
       }));
 
-    onSave({ title: title.trim(), notes, due_date: localInputToISO(localDate), checkpoints }, initial?.id ?? null);
+    // Enforce the plan deadline up front (the server re-checks too).
+    if (planDue) {
+      const limit = Date.parse(planDue);
+      if (Date.parse(dueISO) > limit) {
+        return setError(`Due must be on or before the plan's due date (${formatBangkok(planDue)}).`);
+      }
+      const lateCp = checkpoints.find((c) => c.due_date && Date.parse(c.due_date) > limit);
+      if (lateCp) {
+        return setError(`Checkpoint “${lateCp.title}” is after the plan's due date (${formatBangkok(planDue)}).`);
+      }
+    }
+
+    onSave({ title: title.trim(), notes, due_date: dueISO, checkpoints }, initial?.id ?? null);
   }
 
   const inputCls =
@@ -98,6 +113,11 @@ export default function MilestoneForm({
       <label className="block text-sm">
         <span className="opacity-70">Due (Asia/Bangkok)</span>
         <DateTimePicker value={localDate} onChange={setLocalDate} />
+        {planDue && (
+          <span className="mt-1 block text-xs opacity-60">
+            Plan due: {formatBangkok(planDue)} — must be on or before this.
+          </span>
+        )}
       </label>
 
       <label className="block text-sm">

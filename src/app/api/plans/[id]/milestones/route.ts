@@ -4,7 +4,8 @@ import { NextResponse } from "next/server";
 import { getPlanById, getMilestonesByPlan, appendMilestone } from "@/lib/plansStore";
 import { getSession } from "@/lib/auth";
 import { nowBangkokISO } from "@/lib/dates";
-import { parseMilestoneInput, type Milestone, type Plan } from "@/lib/plans";
+import { formatBangkok } from "@/lib/format";
+import { exceedsPlanDue, parseMilestoneInput, type Milestone, type Plan } from "@/lib/plans";
 import { stampCheckpoints } from "@/lib/milestoneOps";
 
 export const runtime = "nodejs";
@@ -27,6 +28,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const body = await req.json().catch(() => null);
   const parsed = parseMilestoneInput(body);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
+
+  // A milestone (and its dated checkpoints) must not fall after the plan's due.
+  if (plan.due_date) {
+    const over =
+      exceedsPlanDue(parsed.value.due_date, plan.due_date) ||
+      parsed.value.checkpoints.some((c) => exceedsPlanDue(c.due_date, plan.due_date));
+    if (over) {
+      return NextResponse.json(
+        { ok: false, error: `Dates must be on or before the plan due date (${formatBangkok(plan.due_date)}).` },
+        { status: 400 },
+      );
+    }
+  }
 
   const now = nowBangkokISO();
   // Default order_index to the current milestone count so new chapters append.

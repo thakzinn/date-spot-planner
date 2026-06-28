@@ -52,7 +52,8 @@ the rest of the app is built.
 
 6. You do **not** need to create the **`plans`** or **`milestones`** tabs by hand — the app
    **auto-creates** them on first use of the **Plans & Timeline** section, with these headers:
-   - `plans`: `id | title | description | status | created_at | updated_at | created_by | updated_by | invitees | deleted_at`
+   - `plans`: `id | title | description | status | created_at | updated_at | created_by | updated_by | invitees | deleted_at | due_date`
+     (`due_date` is the plan's optional overall deadline; milestone/checkpoint dates can't be later than it. It's the last column so an existing `plans` tab keeps working — old rows just read it as empty.)
    - `milestones`: `id | plan_id | title | notes | due_date | status | done_at | order_index | checkpoints | created_at | updated_at | created_by | updated_by | deleted_at`
 
    A milestone's `checkpoints` cell holds a JSON array of `{ id, title, due_date, done, done_at }`.

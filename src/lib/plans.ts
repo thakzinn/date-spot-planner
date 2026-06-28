@@ -6,9 +6,12 @@
 import { isEmail, normalizeInvitees } from "./places";
 
 // ---- plans -----------------------------------------------------------------
-// Columns A-J, in this exact order:
+// Columns A-K, in this exact order:
 //   id | title | description | status | created_at | updated_at |
-//   created_by | updated_by | invitees | deleted_at
+//   created_by | updated_by | invitees | deleted_at | due_date
+// NOTE: due_date is appended LAST (after deleted_at) on purpose — it was added
+// after launch, and appending keeps every existing row's column indices valid
+// (old rows simply read due_date as "").
 export type PlanStatus = "active" | "done" | "archived";
 export const PLAN_STATUSES: PlanStatus[] = ["active", "done", "archived"];
 
@@ -23,6 +26,7 @@ export interface Plan {
   updated_by: string; // email, or ""
   invitees: string[]; // lowercased emails who share visibility / get reminders
   deleted_at: string; // ISO when soft-deleted, or ""
+  due_date: string; // ISO 8601 +07:00 target finish for the whole plan, or ""
 }
 
 export const PLAN_COLUMNS = [
@@ -36,6 +40,7 @@ export const PLAN_COLUMNS = [
   "updated_by",
   "invitees",
   "deleted_at",
+  "due_date",
 ] as const;
 
 export const PLANS_TAB = "plans";
@@ -133,6 +138,7 @@ export function rowToPlan(row: unknown[]): Plan {
     updated_by: str(row[7]),
     invitees: normalizeInvitees(row[8]),
     deleted_at: str(row[9]),
+    due_date: str(row[10]),
   };
 }
 
@@ -148,6 +154,7 @@ export function planToRow(p: Plan): (string | number)[] {
     p.updated_by,
     p.invitees.join(", "),
     p.deleted_at,
+    p.due_date,
   ];
 }
 
@@ -229,6 +236,7 @@ export interface PlanInput {
   description: string;
   status?: PlanStatus;
   invitees: string[];
+  due_date: string; // ISO 8601 +07:00, or "" (optional overall deadline)
 }
 
 export function parsePlanInput(
@@ -241,6 +249,9 @@ export function parsePlanInput(
     b.status === "active" || b.status === "done" || b.status === "archived"
       ? (b.status as PlanStatus)
       : undefined;
+  const due_date = str(b.due_date).trim();
+  if (due_date && Number.isNaN(Date.parse(due_date)))
+    return { ok: false, error: "due_date must be a valid date/time" };
   return {
     ok: true,
     value: {
@@ -248,8 +259,19 @@ export function parsePlanInput(
       description: str(b.description),
       status,
       invitees: normalizeInvitees(b.invitees),
+      due_date,
     },
   };
+}
+
+// True if a milestone/checkpoint date falls AFTER the plan's overall due date.
+// No plan deadline (or unparseable input) ⇒ never exceeds.
+export function exceedsPlanDue(dateISO: string, planDue: string): boolean {
+  if (!planDue || !dateISO) return false;
+  const a = Date.parse(dateISO);
+  const b = Date.parse(planDue);
+  if (Number.isNaN(a) || Number.isNaN(b)) return false;
+  return a > b;
 }
 
 // Client-settable fields for a milestone. `checkpoints` accepts a loose array

@@ -18,6 +18,7 @@ import { getSession } from "@/lib/auth";
 import { nowBangkokISO } from "@/lib/dates";
 import { formatBangkok } from "@/lib/format";
 import {
+  exceedsPlanDue,
   parseMilestoneInput,
   type Checkpoint,
   type Milestone,
@@ -140,6 +141,20 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
       updated_at: now,
       updated_by: email,
     };
+  }
+
+  // Keep the invariant: no milestone/checkpoint date may fall after the plan due.
+  // Covers edit (new dates), extend (new due) and checkpoint add/edit.
+  if (plan.due_date) {
+    const over =
+      exceedsPlanDue(updated.due_date, plan.due_date) ||
+      updated.checkpoints.some((c) => exceedsPlanDue(c.due_date, plan.due_date));
+    if (over) {
+      return NextResponse.json(
+        { ok: false, error: `Dates must be on or before the plan due date (${formatBangkok(plan.due_date)}).` },
+        { status: 400 },
+      );
+    }
   }
 
   try {

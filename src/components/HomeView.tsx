@@ -26,6 +26,12 @@ export default function HomeView({ feedToken }: { feedToken: string }) {
   const [busy, setBusy] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [preview, setPreview] = useState<[number, number] | null>(null);
+  const [feedUrl, setFeedUrl] = useState("");
+
+  const onPreview = useCallback((coords: [number, number] | null) => {
+    setPreview(coords);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -114,10 +120,13 @@ export default function HomeView({ feedToken }: { feedToken: string }) {
     router.refresh();
   }
 
-  const feedUrl =
-    typeof window !== "undefined" && feedToken
-      ? `${window.location.origin}/api/calendar.ics?token=${feedToken}`
-      : "";
+  // Build the feed URL after mount — window.origin isn't available during SSR,
+  // and branching on it during render would cause a hydration mismatch.
+  useEffect(() => {
+    if (feedToken) {
+      setFeedUrl(`${window.location.origin}/api/calendar.ics?token=${feedToken}`);
+    }
+  }, [feedToken]);
 
   async function copyFeed() {
     if (!feedUrl) return;
@@ -182,6 +191,7 @@ export default function HomeView({ feedToken }: { feedToken: string }) {
                 initial={editing}
                 busy={busy}
                 onSave={onSave}
+                onPreview={onPreview}
                 onCancel={() => {
                   setShowForm(false);
                   setEditing(null);
@@ -208,6 +218,7 @@ export default function HomeView({ feedToken }: { feedToken: string }) {
         <section className="order-1 h-[40vh] lg:order-2 lg:h-auto">
           <MapView
             places={displayed}
+            preview={showForm ? preview : null}
             onConfirm={(id) => setVisited(id, "visit")}
             onRevert={(id) => setVisited(id, "unvisit")}
           />

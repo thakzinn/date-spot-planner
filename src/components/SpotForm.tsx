@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Place, PlaceStatus } from "@/lib/places";
 import { isoToLocalInput, localInputToISO } from "@/lib/format";
+import DateTimePicker from "./DateTimePicker";
 
 export interface SpotPayload {
   place_name: string;
@@ -20,11 +21,13 @@ export default function SpotForm({
   busy,
   onSave,
   onCancel,
+  onPreview,
 }: {
   initial: Place | null;
   busy: boolean;
   onSave: (payload: SpotPayload, id: string | null) => void;
   onCancel: () => void;
+  onPreview?: (coords: [number, number] | null) => void;
 }) {
   const [placeName, setPlaceName] = useState(initial?.place_name ?? "");
   const [localDate, setLocalDate] = useState(
@@ -40,6 +43,15 @@ export default function SpotForm({
   const [extracting, setExtracting] = useState(false);
   const [hint, setHint] = useState("");
   const [error, setError] = useState("");
+
+  // Live-preview the typed/extracted coordinates on the map; clear it on unmount.
+  useEffect(() => {
+    if (!onPreview) return;
+    const latN = parseFloat(lat);
+    const lngN = parseFloat(lng);
+    onPreview(Number.isFinite(latN) && Number.isFinite(lngN) ? [latN, lngN] : null);
+    return () => onPreview(null);
+  }, [lat, lng, onPreview]);
 
   async function onExtract() {
     if (!mapsUrl.trim()) return;
@@ -105,12 +117,7 @@ export default function SpotForm({
 
       <label className="block text-sm">
         <span className="opacity-70">When (Asia/Bangkok)</span>
-        <input
-          type="datetime-local"
-          className={inputCls}
-          value={localDate}
-          onChange={(e) => setLocalDate(e.target.value)}
-        />
+        <DateTimePicker value={localDate} onChange={setLocalDate} />
       </label>
 
       <label className="block text-sm">

@@ -41,16 +41,20 @@ function FitBounds({ points }: { points: [number, number][] }) {
 
 export default function MapView({
   places,
+  preview,
   onConfirm,
   onRevert,
 }: {
   places: Place[];
+  preview?: [number, number] | null;
   onConfirm: (id: string) => void;
   onRevert: (id: string) => void;
 }) {
   const pins = places.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
   const points: [number, number][] = pins.map((p) => [p.lat, p.lng]);
-  const center = points[0] ?? BANGKOK;
+  // When a preview point exists, fit/zoom to it too so the user sees where it lands.
+  const fitPoints: [number, number][] = preview ? [...points, preview] : points;
+  const center = preview ?? points[0] ?? BANGKOK;
 
   return (
     <MapContainer center={center} zoom={12} scrollWheelZoom className="h-full w-full">
@@ -58,7 +62,17 @@ export default function MapView({
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       />
-      <FitBounds points={points} />
+      <FitBounds points={fitPoints} />
+      {preview && (
+        <Marker position={preview} icon={pinIcon("#db2777")} zIndexOffset={1000}>
+          <Popup>
+            <div className="text-sm font-semibold">New spot (preview)</div>
+            <div className="text-xs opacity-70">
+              {preview[0].toFixed(6)}, {preview[1].toFixed(6)}
+            </div>
+          </Popup>
+        </Marker>
+      )}
       {pins.map((p) => (
         <Marker key={p.id} position={[p.lat, p.lng]} icon={pinIcon(colorFor(p.status))}>
           <Popup>

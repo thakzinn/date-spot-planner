@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
 import { Swal, showLoading, showError } from "@/lib/swal";
 import { formatBangkok } from "@/lib/format";
@@ -61,49 +61,48 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
   const distance =
     geo.kind === "ok" && hasPin ? haversineMeters(geo.lat, geo.lng, place.lat, place.lng) : null;
 
+  // IMPORTANT: only call this from a user gesture (a tap). iOS Safari rejects
+  // getCurrentPosition with PERMISSION_DENIED when there's no user activation —
+  // even when the site's Location permission is set to "Allow" — so we never
+  // auto-request on load. The first attempt asks for high accuracy (GPS); if
+  // that fails for any reason other than an outright denial, we retry once with
+  // coarse accuracy, which iPhones return far more reliably indoors.
   const locate = useCallback(() => {
     if (!("geolocation" in navigator)) {
       setGeo({ kind: "error", message: "This device can't share its location.", denied: false });
       return;
     }
     setGeo({ kind: "locating" });
+
+    const onOk = (pos: GeolocationPosition) =>
+      setGeo({
+        kind: "ok",
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+      });
+
+    const fail = (err: GeolocationPositionError) =>
+      setGeo({
+        kind: "error",
+        message: geoErrorMessage(err),
+        denied: err.code === err.PERMISSION_DENIED,
+      });
+
     navigator.geolocation.getCurrentPosition(
-      (pos) =>
-        setGeo({
-          kind: "ok",
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-        }),
-      (err) =>
-        setGeo({
-          kind: "error",
-          message: geoErrorMessage(err),
-          denied: err.code === err.PERMISSION_DENIED,
-        }),
-      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 0 },
+      onOk,
+      (err) => {
+        // A denial won't change on retry; anything else might with coarse mode.
+        if (err.code === err.PERMISSION_DENIED) return fail(err);
+        navigator.geolocation.getCurrentPosition(onOk, fail, {
+          enableHighAccuracy: false,
+          timeout: 15_000,
+          maximumAge: 0,
+        });
+      },
+      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 0 },
     );
   }, []);
-
-  // Only auto-locate when permission is ALREADY granted (returning users). For a
-  // first visit we wait for a button tap — iOS Safari is unreliable about (and
-  // often silently denies) geolocation requests not tied to a user gesture.
-  // Calling locate() from the async .then keeps it out of the effect's sync body.
-  useEffect(() => {
-    if (visited) return;
-    let cancelled = false;
-    const perms = navigator.permissions;
-    if (!perms?.query) return;
-    perms
-      .query({ name: "geolocation" as PermissionName })
-      .then((status) => {
-        if (!cancelled && status.state === "granted") locate();
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [visited, locate]);
 
   function describeNotice(notice: NoticeResult | null | undefined): string {
     if (!notice) return "";

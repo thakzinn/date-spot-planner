@@ -9,6 +9,7 @@ import { bangkokDateStr, isTodayBangkok } from "@/lib/dates";
 import { formatBangkok, isoToLocalInput, localInputToISO } from "@/lib/format";
 import DateTimePicker from "./DateTimePicker";
 import TimelineView from "./TimelineView";
+import Segmented from "./Segmented";
 
 interface PlanPayload {
   title: string;
@@ -17,13 +18,20 @@ interface PlanPayload {
   due_date: string;
 }
 
+type PlanScope = "me" | "invited" | "all";
+type PlanPeriod = "current" | "past" | "all";
+
 export default function PlansView({
   userEmail,
+  feedToken,
 }: {
   userEmail: string;
   userName?: string;
+  feedToken?: string;
 }) {
   const router = useRouter();
+  const [feedUrl, setFeedUrl] = useState("");
+  const [copied, setCopied] = useState(false);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +40,10 @@ export default function PlansView({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showPlanForm, setShowPlanForm] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
+  // Who owns the plan (Me / Invited / All) and where it sits in time
+  // (Current = active & not past due, Past = done/archived or overdue).
+  const [scope, setScope] = useState<PlanScope>("all");
+  const [period, setPeriod] = useState<PlanPeriod>("current");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,11 +73,55 @@ export default function PlansView({
     load();
   }, [load]);
 
+  // Build the feed URL after mount — window.origin isn't available during SSR,
+  // and branching on it during render would cause a hydration mismatch.
+  useEffect(() => {
+    if (feedToken) {
+      setFeedUrl(`${window.location.origin}/api/plans.ics?token=${feedToken}`);
+    }
+  }, [feedToken]);
+
+  async function copyFeed() {
+    if (!feedUrl) return;
+    try {
+      await navigator.clipboard.writeText(feedUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+      showSuccess("Plans calendar URL copied");
+    } catch {
+      /* clipboard may be blocked; ignore */
+    }
+  }
+
   const milestonesByPlan = useMemo(() => {
     const map = new Map<string, Milestone[]>();
     for (const m of milestones) map.set(m.plan_id, [...(map.get(m.plan_id) ?? []), m]);
     return map;
   }, [milestones]);
+
+  // A plan is "ours" when we created it; otherwise we only see it because we
+  // were invited — those are read-mostly, so we hide the Edit/Delete actions.
+  const me = userEmail.trim().toLowerCase();
+  const isOwner = (p: Plan) => p.created_by.trim().toLowerCase() === me;
+
+  // Plans split into Current vs Past: anything finished/archived, or whose
+  // overall due date has already gone by (Asia/Bangkok), counts as Past.
+  const visiblePlans = useMemo(() => {
+    const today = bangkokDateStr();
+    const isPast = (p: Plan) => {
+      if (p.status !== "active") return true;
+      if (!p.due_date) return false;
+      const d = Date.parse(p.due_date);
+      return !Number.isNaN(d) && bangkokDateStr(new Date(d)) < today;
+    };
+    return plans.filter((p) => {
+      if (scope === "me" && p.created_by.trim().toLowerCase() !== me) return false;
+      if (scope === "invited" && p.created_by.trim().toLowerCase() === me) return false;
+      if (period === "current" && isPast(p)) return false;
+      if (period === "past" && !isPast(p)) return false;
+      return true;
+    });
+  }, [plans, scope, period, me]);
 
   const selected = plans.find((p) => p.id === selectedId) ?? null;
 
@@ -164,6 +220,15 @@ export default function PlansView({
               + New plan
             </button>
           )}
+          {feedUrl && (
+            <button
+              onClick={copyFeed}
+              title={feedUrl}
+              className="rounded-lg border border-black/15 dark:border-white/25 px-3 py-1.5 text-sm"
+            >
+              {copied ? "Copied!" : "Copy plans calendar URL"}
+            </button>
+          )}
           <span className="hidden text-xs opacity-60 sm:inline" title={userEmail}>
             {userEmail}
           </span>
@@ -192,6 +257,7 @@ export default function PlansView({
       ) : selected ? (
         <TimelineView
           plan={selected}
+          isOwner={isOwner(selected)}
           milestones={milestonesByPlan.get(selected.id) ?? []}
           onBack={() => setSelectedId(null)}
           onMilestoneUpsert={upsertMilestone}
@@ -207,8 +273,33 @@ export default function PlansView({
           No plans yet. Create one (e.g. “อ่านหนังสือ X”) and add milestones with due dates.
         </p>
       ) : (
-        <ul className="space-y-2">
-          {plans.map((p) => {
+        <>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Segmented
+              value={scope}
+              onChange={setScope}
+              options={[
+                { value: "me", label: "Me" },
+                { value: "invited", label: "Invited" },
+                { value: "all", label: "All" },
+              ]}
+            />
+            <span className="opacity-30">·</span>
+            <Segmented
+              value={period}
+              onChange={setPeriod}
+              options={[
+                { value: "current", label: "Current" },
+                { value: "past", label: "Past" },
+                { value: "all", label: "All" },
+              ]}
+            />
+          </div>
+          {visiblePlans.length === 0 ? (
+            <p className="py-8 text-center text-sm opacity-60">No plans match this filter.</p>
+          ) : (
+            <ul className="space-y-2">
+              {visiblePlans.map((p) => {
             const ms = milestonesByPlan.get(p.id) ?? [];
             const counts = summarize(ms);
             return (
@@ -219,6 +310,14 @@ export default function PlansView({
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <button onClick={() => setSelectedId(p.id)} className="text-left">
                     <span className="font-medium">{p.title}</span>
+                    {!isOwner(p) && (
+                      <span
+                        className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
+                        title={p.created_by ? `Invited by ${p.created_by}` : "Shared with you"}
+                      >
+                        invited
+                      </span>
+                    )}
                     {p.status !== "active" && (
                       <span className="ml-2 rounded-full bg-black/10 px-2 py-0.5 text-xs dark:bg-white/15">
                         {p.status}
@@ -243,24 +342,30 @@ export default function PlansView({
                     <button onClick={() => setSelectedId(p.id)} className={btnGhost}>
                       Open
                     </button>
-                    <button
-                      onClick={() => {
-                        setEditingPlan(p);
-                        setShowPlanForm(true);
-                      }}
-                      className={btnGhost}
-                    >
-                      Edit
-                    </button>
-                    <button onClick={() => deletePlan(p)} className={btnGhost}>
-                      Delete
-                    </button>
+                    {isOwner(p) && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setEditingPlan(p);
+                            setShowPlanForm(true);
+                          }}
+                          className={btnGhost}
+                        >
+                          Edit
+                        </button>
+                        <button onClick={() => deletePlan(p)} className={btnGhost}>
+                          Delete
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </li>
-            );
-          })}
-        </ul>
+                );
+              })}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );

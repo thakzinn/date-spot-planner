@@ -25,7 +25,7 @@ export default function SpotList({
   onDelete: (id: string) => void;
 }) {
   if (places.length === 0) {
-    return <p className="py-8 text-center text-sm opacity-60">No spots in this range yet.</p>;
+    return <p className="py-8 text-center text-sm opacity-60">No spots match this filter.</p>;
   }
 
   return (

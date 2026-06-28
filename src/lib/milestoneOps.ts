@@ -2,10 +2,10 @@
 // node:crypto import never reaches a client bundle (client components only import
 // types/constants from ./plans).
 import { randomUUID } from "node:crypto";
-import type { Checkpoint } from "./plans";
+import { normalizeInvitees, type Checkpoint } from "./plans";
 
 // Give every checkpoint a stable id (assign one to new client-supplied items
-// that arrive without one) and keep `done`/`done_at` consistent.
+// that arrive without one) and keep `done`/`done_at`/`assignees` consistent.
 export function stampCheckpoints(input: Checkpoint[], now: string): Checkpoint[] {
   return input.map((c) => {
     const id = c.id?.trim() ? c.id.trim() : `cp_${Date.now()}_${randomUUID().slice(0, 8)}`;
@@ -16,6 +16,7 @@ export function stampCheckpoints(input: Checkpoint[], now: string): Checkpoint[]
       due_date: c.due_date ?? "",
       done,
       done_at: done ? c.done_at || now : "",
+      assignees: normalizeInvitees(c.assignees),
     };
   });
 }

@@ -10,6 +10,7 @@ export interface MilestonePayload {
   notes: string;
   due_date: string; // ISO with offset
   checkpoints: Checkpoint[];
+  assignees: string[];
 }
 
 // Local editing shape for a checkpoint row (date held as datetime-local value).
@@ -19,6 +20,7 @@ interface Row {
   localDate: string;
   done: boolean;
   done_at: string;
+  assignees: string[];
 }
 
 let rowSeq = 0;
@@ -27,22 +29,64 @@ function newRowKey(): string {
   return `row_${rowSeq}`;
 }
 
+// Toggleable chips for picking responsible people from the plan's members
+// (creator + invitees). Renders nothing when the plan has no members to assign.
+function AssigneePicker({
+  members,
+  selected,
+  onChange,
+}: {
+  members: string[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  if (members.length === 0) return null;
+  const toggle = (email: string) =>
+    onChange(selected.includes(email) ? selected.filter((e) => e !== email) : [...selected, email]);
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {members.map((email) => {
+        const on = selected.includes(email);
+        return (
+          <button
+            key={email}
+            type="button"
+            onClick={() => toggle(email)}
+            title={email}
+            className={`rounded-full border px-2.5 py-1 text-xs ${
+              on
+                ? "border-pink-600 bg-pink-600 text-white"
+                : "border-black/15 opacity-80 dark:border-white/25"
+            }`}
+          >
+            {on ? "✓ " : ""}
+            {email.split("@")[0]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function MilestoneForm({
   initial,
   busy,
   planDue,
+  members = [],
   onSave,
   onCancel,
 }: {
   initial: Milestone | null;
   busy: boolean;
   planDue?: string; // plan's overall due date (ISO) — milestones can't exceed it
+  members?: string[]; // plan members (creator + invitees) that can be assigned
   onSave: (payload: MilestonePayload, id: string | null) => void;
   onCancel: () => void;
 }) {
   const [title, setTitle] = useState(initial?.title ?? "");
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [localDate, setLocalDate] = useState(initial ? isoToLocalInput(initial.due_date) : "");
+  const [assignees, setAssignees] = useState<string[]>(initial?.assignees ?? []);
   const [rows, setRows] = useState<Row[]>(
     (initial?.checkpoints ?? []).map((c) => ({
       id: c.id,
@@ -50,12 +94,16 @@ export default function MilestoneForm({
       localDate: c.due_date ? isoToLocalInput(c.due_date) : "",
       done: c.done,
       done_at: c.done_at,
+      assignees: c.assignees ?? [],
     })),
   );
   const [error, setError] = useState("");
 
   function addRow() {
-    setRows((r) => [...r, { id: newRowKey(), title: "", localDate: "", done: false, done_at: "" }]);
+    setRows((r) => [
+      ...r,
+      { id: newRowKey(), title: "", localDate: "", done: false, done_at: "", assignees: [] },
+    ]);
   }
   function updateRow(id: string, patch: Partial<Row>) {
     setRows((r) => r.map((row) => (row.id === id ? { ...row, ...patch } : row)));
@@ -81,6 +129,7 @@ export default function MilestoneForm({
         due_date: row.localDate ? localInputToISO(row.localDate) : "",
         done: row.done,
         done_at: row.done_at,
+        assignees: row.assignees,
       }));
 
     // Enforce the plan deadline up front (the server re-checks too).
@@ -95,7 +144,7 @@ export default function MilestoneForm({
       }
     }
 
-    onSave({ title: title.trim(), notes, due_date: dueISO, checkpoints }, initial?.id ?? null);
+    onSave({ title: title.trim(), notes, due_date: dueISO, checkpoints, assignees }, initial?.id ?? null);
   }
 
   const inputCls =
@@ -125,6 +174,15 @@ export default function MilestoneForm({
         <textarea className={inputCls} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </label>
 
+      {members.length > 0 && (
+        <div className="text-sm">
+          <span className="opacity-70">ผู้รับผิดชอบ (assign จากคนที่เชิญไว้)</span>
+          <div className="mt-1">
+            <AssigneePicker members={members} selected={assignees} onChange={setAssignees} />
+          </div>
+        </div>
+      )}
+
       <div className="text-sm">
         <span className="opacity-70">Checkpoints (optional — each can have its own date)</span>
         <div className="mt-1 space-y-2">
@@ -152,6 +210,18 @@ export default function MilestoneForm({
                   onChange={(v) => updateRow(row.id, { localDate: v })}
                 />
               </div>
+              {members.length > 0 && (
+                <div className="mt-1.5">
+                  <span className="text-xs opacity-50">ผู้รับผิดชอบ:</span>
+                  <div className="mt-1">
+                    <AssigneePicker
+                      members={members}
+                      selected={row.assignees}
+                      onChange={(next) => updateRow(row.id, { assignees: next })}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

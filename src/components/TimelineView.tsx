@@ -64,12 +64,31 @@ function Countdown({ due, done }: { due: string; done?: boolean }) {
   );
 }
 
+// Small read-only chips listing who is responsible for a milestone/checkpoint.
+function AssigneeChips({ emails }: { emails: string[] }) {
+  if (emails.length === 0) return null;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {emails.map((e) => (
+        <span
+          key={e}
+          title={e}
+          className="rounded-full bg-pink-100 px-2 py-0.5 text-xs text-pink-800 dark:bg-pink-900/40 dark:text-pink-200"
+        >
+          @{e.split("@")[0]}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 const btnPrimary = "rounded-lg bg-pink-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50";
 const btnGhost =
   "rounded-lg border border-black/15 dark:border-white/25 px-2.5 py-1 text-xs disabled:opacity-50";
 
 export default function TimelineView({
   plan,
+  isOwner,
   milestones,
   onBack,
   onMilestoneUpsert,
@@ -77,6 +96,7 @@ export default function TimelineView({
   onEditPlan,
 }: {
   plan: Plan;
+  isOwner: boolean;
   milestones: Milestone[];
   onBack: () => void;
   onMilestoneUpsert: (m: Milestone) => void;
@@ -96,6 +116,14 @@ export default function TimelineView({
   // Which checkpoint's inline date editor is open (by checkpoint id), or null.
   const [openCheckpoint, setOpenCheckpoint] = useState<string | null>(null);
 
+  // People who can be assigned to a milestone/checkpoint: the plan creator plus
+  // everyone invited, lowercased and de-duped (so the picker matches the emails
+  // the server stores on the milestone).
+  const members = useMemo(() => {
+    const all = [plan.created_by.trim().toLowerCase(), ...plan.invitees].filter(Boolean);
+    return [...new Set(all)];
+  }, [plan.created_by, plan.invitees]);
+
   const ordered = useMemo(
     () =>
       [...milestones].sort(
@@ -109,11 +137,12 @@ export default function TimelineView({
   // Each milestone owns the spine leg *below* its own dot (the stretch beside
   // its card). We colour those legs:
   //  • green   — legs of milestones already done
-  //  • rainbow — the leg of the current in-progress milestone (first not-done)
-  //  • faint   — everything after (static, from the pseudo-element)
+  //  • rainbow — only the leg of the current in-progress milestone (first
+  //              not-done) toward the next dot — that's the part being worked on
+  //  • faint   — everything after (not yet reached; the plain pseudo-element)
   // `boundaryId` is the dot where green ends and the rainbow begins (the
   // in-progress milestone's dot); `rainEndId` is the dot the rainbow runs to
-  // (the milestone after it, or the plan-due point).
+  // (the milestone right after it, or the plan-due point).
   const { boundaryId, rainEndId } = useMemo(() => {
     const idx = ordered.findIndex((m) => m.status !== "done");
     const planDue = plan.due_date ? "__plan_due__" : null;
@@ -137,11 +166,19 @@ export default function TimelineView({
   const [runHeight, setRunHeight] = useState(0);
   const [greenTop, setGreenTop] = useState(0);
   const [greenHeight, setGreenHeight] = useState(0);
+  // Where the faint base spine ends — the centre of the last dot on the track.
+  const [trackHeight, setTrackHeight] = useState<number | null>(null);
   useEffect(() => {
     const measure = () => {
       const ol = trackRef.current;
       // Each dot sits at top-1.5 (6px) and is h-4 (16px) → centre is 14px down.
-      const firstLi = ol?.querySelector("li");
+      // Only the ol's *direct* children are track points — `li` would also match
+      // nested checkpoint <li>s inside the cards, so scope to direct children.
+      const points = ol ? ol.querySelectorAll<HTMLLIElement>(":scope > li") : null;
+      const firstLi = points?.[0] ?? null;
+      // End the spine at the last dot's centre so it doesn't trail past it.
+      const lastLi = points?.length ? points[points.length - 1] : null;
+      setTrackHeight(lastLi ? lastLi.offsetTop + 14 : null);
       // Start at the first dot's lower edge (centre 14 + radius ≈ 20) so the
       // line's rounded cap tucks under the circle instead of poking above it.
       const start = firstLi ? firstLi.offsetTop + 20 : 0;
@@ -348,9 +385,11 @@ export default function TimelineView({
               Email members on changes
             </label>
           )}
-          <button onClick={onEditPlan} className="rounded-lg border border-black/15 dark:border-white/25 px-3 py-1.5 text-sm">
-            Edit plan
-          </button>
+          {isOwner && (
+            <button onClick={onEditPlan} className="rounded-lg border border-black/15 dark:border-white/25 px-3 py-1.5 text-sm">
+              Edit plan
+            </button>
+          )}
           <button
             onClick={() => {
               setEditing(null);
@@ -370,6 +409,7 @@ export default function TimelineView({
             initial={editing}
             busy={busy}
             planDue={plan.due_date}
+            members={members}
             onSave={onSaveMilestone}
             onCancel={() => {
               setShowForm(false);
@@ -386,7 +426,11 @@ export default function TimelineView({
       ) : (
         // Vertical timeline: a track line on the left, a coloured point per
         // milestone, the due date as a pill, and the full card beside it.
-        <ol ref={trackRef} className="timeline-track relative ms-2">
+        <ol
+          ref={trackRef}
+          className="timeline-track relative ms-2"
+          style={trackHeight != null ? { ["--track-height" as string]: `${trackHeight}px` } : undefined}
+        >
           {greenHeight > 0 && (
             <span
               className="timeline-done"
@@ -435,6 +479,12 @@ export default function TimelineView({
                     )}
                   </div>
                   {m.notes && <p className="mt-1 text-sm opacity-80">{m.notes}</p>}
+                  {m.assignees.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1 text-xs">
+                      <span className="opacity-50">ผู้รับผิดชอบ:</span>
+                      <AssigneeChips emails={m.assignees} />
+                    </div>
+                  )}
 
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {m.status === "done" ? (
@@ -499,6 +549,7 @@ export default function TimelineView({
                             </button>
                             {c.due_date && <span className="text-xs opacity-50">· {formatBangkok(c.due_date)}</span>}
                             {c.due_date && <Countdown due={c.due_date} done={c.done} />}
+                            {c.assignees.length > 0 && <AssigneeChips emails={c.assignees} />}
                             {c.done && c.done_at && (
                               <span className="text-xs text-green-600">✓ เช็ค {formatBangkok(c.done_at)}</span>
                             )}

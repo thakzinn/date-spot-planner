@@ -7,6 +7,7 @@ import { nowBangkokISO } from "@/lib/dates";
 import { formatBangkok } from "@/lib/format";
 import { exceedsPlanDue, parseMilestoneInput, type Milestone, type Plan } from "@/lib/plans";
 import { stampCheckpoints } from "@/lib/milestoneOps";
+import { diffAssignees, notifyAssignees } from "@/lib/assignNotice";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,10 +63,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     created_by: email,
     updated_by: email,
     deleted_at: "",
+    assignees: parsed.value.assignees,
   };
 
   try {
     await appendMilestone(milestone);
+    // Best-effort: email anyone assigned to this new milestone / its checkpoints.
+    await notifyAssignees(session, plan, diffAssignees(null, milestone));
     return NextResponse.json({ ok: true, milestone }, { status: 201 });
   } catch (err) {
     return NextResponse.json(

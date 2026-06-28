@@ -32,9 +32,13 @@ body {
   position: absolute;
   inset-inline-start: -2px;
   top: 0;
-  bottom: 0;
+  /* Stop the spine at the centre of the last dot (measured inline) instead of
+     running on to the bottom of the list. */
+  height: var(--track-height, 100%);
   width: 2px;
-  background-color: rgb(236 72 153 / 0.3);
+  /* The not-yet-reached stretch: a clearly visible grey (the active rainbow and
+     the done-green segments are drawn on top of this). */
+  background-color: rgb(113 113 122 / 0.6);
 }
 
 /* The completed segment of the spine: a solid green line connecting the

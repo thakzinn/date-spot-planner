@@ -19,6 +19,7 @@ import { nowBangkokISO } from "@/lib/dates";
 import { formatBangkok } from "@/lib/format";
 import {
   exceedsPlanDue,
+  normalizeInvitees,
   parseMilestoneInput,
   type Checkpoint,
   type Milestone,
@@ -26,6 +27,7 @@ import {
 } from "@/lib/plans";
 import { stampCheckpoints } from "@/lib/milestoneOps";
 import { sendPlanNotice } from "@/lib/gmail";
+import { diffAssignees, notifyAssignees } from "@/lib/assignNotice";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +67,7 @@ function applyCheckpointOp(
           due_date: str(cp.due_date).trim(),
           done: cp.done === true,
           done_at: "",
+          assignees: normalizeInvitees(cp.assignees),
         },
       ],
       now,
@@ -84,6 +87,7 @@ function applyCheckpointOp(
             ...c,
             title: cp.title != null ? str(cp.title).trim() : c.title,
             due_date: cp.due_date != null ? str(cp.due_date).trim() : c.due_date,
+            assignees: cp.assignees != null ? normalizeInvitees(cp.assignees) : c.assignees,
           }
         : c,
     );
@@ -143,6 +147,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
       due_date: v.due_date,
       order_index: v.order_index ?? existing.order_index,
       checkpoints: stampCheckpoints(v.checkpoints, now),
+      assignees: v.assignees,
       updated_at: now,
       updated_by: email,
     };
@@ -171,6 +176,10 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
       { status: 500 },
     );
   }
+
+  // Best-effort: email anyone *newly* assigned to this milestone or one of its
+  // checkpoints by this edit (independent of the notify-on-confirm/extend flag).
+  await notifyAssignees(session, plan, diffAssignees(existing, updated));
 
   // Best-effort event-driven email to the other plan members. Never fails the
   // mutation — the milestone is already saved.

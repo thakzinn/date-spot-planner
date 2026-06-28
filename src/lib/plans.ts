@@ -61,6 +61,7 @@ export interface Checkpoint {
   due_date: string; // ISO 8601 +07:00, or ""
   done: boolean;
   done_at: string; // ISO when ticked, or ""
+  assignees: string[]; // lowercased emails responsible for this step (subset of plan members)
 }
 
 export interface Milestone {
@@ -78,8 +79,12 @@ export interface Milestone {
   created_by: string;
   updated_by: string;
   deleted_at: string;
+  assignees: string[]; // lowercased emails responsible for this milestone (subset of plan members)
 }
 
+// NOTE: `assignees` is appended LAST (after deleted_at) on purpose — like
+// due_date on plans, it was added after launch, so appending keeps every
+// existing row's column indices valid (old rows read assignees as "" -> []).
 export const MILESTONE_COLUMNS = [
   "id",
   "plan_id",
@@ -95,6 +100,7 @@ export const MILESTONE_COLUMNS = [
   "created_by",
   "updated_by",
   "deleted_at",
+  "assignees",
 ] as const;
 
 export const MILESTONES_TAB = "milestones";
@@ -188,6 +194,7 @@ function toCheckpoint(v: unknown): Checkpoint | null {
     due_date: due && !Number.isNaN(Date.parse(due)) ? due : "",
     done,
     done_at: done ? str(o.done_at).trim() : "",
+    assignees: normalizeInvitees(o.assignees),
   };
 }
 
@@ -207,6 +214,7 @@ export function rowToMilestone(row: unknown[]): Milestone {
     created_by: str(row[11]),
     updated_by: str(row[12]),
     deleted_at: str(row[13]),
+    assignees: normalizeInvitees(row[14]),
   };
 }
 
@@ -226,6 +234,7 @@ export function milestoneToRow(m: Milestone): (string | number)[] {
     m.created_by,
     m.updated_by,
     m.deleted_at,
+    m.assignees.join(", "),
   ];
 }
 
@@ -282,6 +291,7 @@ export interface MilestoneInput {
   due_date: string; // ISO 8601 +07:00
   checkpoints: Checkpoint[];
   order_index?: number;
+  assignees: string[]; // lowercased emails responsible for this milestone
 }
 
 export function parseMilestoneInput(
@@ -305,9 +315,10 @@ export function parseMilestoneInput(
       due_date,
       checkpoints: parseCheckpoints(b.checkpoints),
       order_index,
+      assignees: normalizeInvitees(b.assignees),
     },
   };
 }
 
-// re-export so callers can validate invitee emails without importing places too
-export { isEmail };
+// re-export so callers can validate/normalize emails without importing places too
+export { isEmail, normalizeInvitees };

@@ -1,7 +1,7 @@
 // Hand-rolled RFC 5545 iCalendar builder. Gives precise control over GEO, the
 // "✅ " visited prefix, escaping, CRLF, and line folding.
 import type { Place } from "./places";
-import type { Milestone } from "./plans";
+import type { Milestone, Plan } from "./plans";
 import { isTodayBangkok } from "./dates";
 
 const PRODID = "-//date-spot-planner//EN";
@@ -230,6 +230,21 @@ export function buildMilestoneEvents(m: Milestone, planTitle: string): string[] 
     if (cp) groups.push(cp);
   }
   return groups.flat();
+}
+
+// A deadline-style VEVENT for a whole plan, anchored on its overall due_date.
+// Returns [] if the plan has no usable due_date. The "🎯 " prefix mirrors how
+// plan deadlines read in the app's UI.
+export function buildPlanEvents(p: Plan): string[] {
+  const ev = buildTimelineEvent({
+    uid: `${p.id}@datespot-plan`,
+    summary: `🎯 ${p.title}`,
+    dueDate: p.due_date,
+    done: p.status === "done",
+    stamp: p.updated_at || p.created_at,
+    description: p.description || undefined,
+  });
+  return ev ?? [];
 }
 
 // ---- calendar wrapper -------------------------------------------------------

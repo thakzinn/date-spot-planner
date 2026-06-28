@@ -7,9 +7,13 @@ import { useRouter } from "next/navigation";
 import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
 import type { Place } from "@/lib/places";
 import { formatBangkok } from "@/lib/format";
-import { isWithinWindow } from "@/lib/dates";
+import { bangkokDateStr } from "@/lib/dates";
 import SpotList from "./SpotList";
 import SpotForm, { type SpotPayload } from "./SpotForm";
+import Segmented from "./Segmented";
+
+type SpotScope = "me" | "invited" | "all";
+type SpotPeriod = "current" | "past" | "all";
 
 // Leaflet needs the browser — load the map only on the client.
 const MapView = dynamic(() => import("./MapView"), {
@@ -34,7 +38,10 @@ export default function HomeView({
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Place | null>(null);
   const [busy, setBusy] = useState(false);
-  const [showAll, setShowAll] = useState(false);
+  // Who owns the spot (Me / Invited / All) and where it sits in time
+  // (Current = planned & not past due, Past = visited/cancelled or date gone by).
+  const [scope, setScope] = useState<SpotScope>("all");
+  const [period, setPeriod] = useState<SpotPeriod>("current");
   const [copied, setCopied] = useState(false);
   const [preview, setPreview] = useState<[number, number] | null>(null);
   const [feedUrl, setFeedUrl] = useState("");
@@ -66,10 +73,26 @@ export default function HomeView({
     load();
   }, [load]);
 
+  // A spot is "ours" when we created it; otherwise we only see it via an invite.
+  const me = userEmail.trim().toLowerCase();
+
   const displayed = useMemo(() => {
-    const list = showAll ? places : places.filter((p) => isWithinWindow(p.planned_date));
+    const today = bangkokDateStr();
+    // Past = already visited/cancelled, or its planned date has gone by.
+    const isPast = (p: Place) => {
+      if (p.status !== "planned") return true;
+      const d = Date.parse(p.planned_date);
+      return !Number.isNaN(d) && bangkokDateStr(new Date(d)) < today;
+    };
+    const list = places.filter((p) => {
+      if (scope === "me" && p.created_by.trim().toLowerCase() !== me) return false;
+      if (scope === "invited" && p.created_by.trim().toLowerCase() === me) return false;
+      if (period === "current" && isPast(p)) return false;
+      if (period === "past" && !isPast(p)) return false;
+      return true;
+    });
     return [...list].sort((a, b) => Date.parse(a.planned_date) - Date.parse(b.planned_date));
-  }, [places, showAll]);
+  }, [places, scope, period, me]);
 
   function upsertLocal(updated: Place) {
     setPlaces((prev) => {
@@ -251,17 +274,29 @@ export default function HomeView({
 
       <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_1fr] lg:grid-cols-2 lg:grid-rows-1">
         <section className="order-2 min-h-0 overflow-y-auto p-4 lg:order-1">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="font-medium">
-              Spots{" "}
-              <span className="text-sm font-normal opacity-60">
-                ({showAll ? "all" : "−30d … +60d"})
-              </span>
-            </h2>
-            <label className="flex items-center gap-1 text-xs opacity-70">
-              <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
-              Show all dates
-            </label>
+          <div className="mb-2 space-y-2">
+            <h2 className="font-medium">Spots</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <Segmented
+                value={scope}
+                onChange={setScope}
+                options={[
+                  { value: "me", label: "Me" },
+                  { value: "invited", label: "Invited" },
+                  { value: "all", label: "All" },
+                ]}
+              />
+              <span className="opacity-30">·</span>
+              <Segmented
+                value={period}
+                onChange={setPeriod}
+                options={[
+                  { value: "current", label: "Current" },
+                  { value: "past", label: "Past" },
+                  { value: "all", label: "All" },
+                ]}
+              />
+            </div>
           </div>
 
           {error && <p className="mb-2 text-sm text-red-600">{error}</p>}

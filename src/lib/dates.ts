@@ -40,6 +40,16 @@ export function isWithinWindow(isoDate: string, now: Date = new Date()): boolean
   return t >= start && t <= end;
 }
 
+// True if an ISO datetime is strictly in the future relative to `now`. Empty or
+// unparseable input -> false (so plans without a due_date are excluded). The
+// comparison is on absolute instants, so the +07:00 offset in the stored value
+// is honored without any timezone math here.
+export function isFuture(isoDate: string, now: Date = new Date()): boolean {
+  const t = Date.parse(isoDate);
+  if (Number.isNaN(t)) return false;
+  return t > now.getTime();
+}
+
 // The Bangkok calendar date (YYYY-MM-DD) for an instant. Shift by +07:00 first,
 // then read the UTC fields — same trick as nowBangkokISO.
 export function bangkokDateStr(date: Date = new Date()): string {

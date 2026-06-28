@@ -39,3 +39,18 @@ export function isWithinWindow(isoDate: string, now: Date = new Date()): boolean
   const { start, end } = windowBounds(now);
   return t >= start && t <= end;
 }
+
+// The Bangkok calendar date (YYYY-MM-DD) for an instant. Shift by +07:00 first,
+// then read the UTC fields — same trick as nowBangkokISO.
+export function bangkokDateStr(date: Date = new Date()): string {
+  const shifted = new Date(date.getTime() + BANGKOK_OFFSET_MIN * 60_000);
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
+}
+
+// True if an ISO datetime lands on the same Bangkok calendar day as `now`.
+// Used to surface the "confirm visit" link only on the day of the date.
+export function isTodayBangkok(isoDate: string, now: Date = new Date()): boolean {
+  const t = Date.parse(isoDate);
+  if (Number.isNaN(t)) return false;
+  return bangkokDateStr(new Date(t)) === bangkokDateStr(now);
+}

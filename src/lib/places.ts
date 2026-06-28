@@ -1,7 +1,8 @@
 // Domain types + Google Sheet row <-> object mapping for the `places` tab.
-// Columns A-L, in this exact order (see SETUP.md header row):
+// Columns A-P, in this exact order (see SETUP.md header row):
 //   id | place_name | lat | lng | maps_url | planned_date | status |
-//   visited_at | category | notes | created_at | updated_at
+//   visited_at | category | notes | created_at | updated_at | created_by |
+//   updated_by | invitees | deleted_at
 
 export type PlaceStatus = "planned" | "visited" | "cancelled";
 
@@ -20,9 +21,13 @@ export interface Place {
   notes: string;
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
+  created_by: string; // email of the user who created the spot, or ""
+  updated_by: string; // email of the user who last updated the spot, or ""
+  invitees: string[]; // lowercased emails invited to this spot (may be empty)
+  deleted_at: string; // ISO 8601 when soft-deleted, or "" — non-empty rows are hidden everywhere
 }
 
-// The 12 columns, in sheet order. Used to build A1 ranges & map rows.
+// The columns, in sheet order. Used to build A1 ranges & map rows.
 export const PLACE_COLUMNS = [
   "id",
   "place_name",
@@ -36,13 +41,43 @@ export const PLACE_COLUMNS = [
   "notes",
   "created_at",
   "updated_at",
+  "created_by",
+  "updated_by",
+  "invitees",
+  "deleted_at",
 ] as const;
 
 export const SHEET_TAB = "places";
 export const FIRST_DATA_ROW = 2; // row 1 is the header
 
+// Last sheet column letter, derived from PLACE_COLUMNS so A1 ranges stay in sync
+// if the schema grows. 16 columns -> "P".
+export const LAST_COLUMN = String.fromCharCode("A".charCodeAt(0) + PLACE_COLUMNS.length - 1);
+
 function str(v: unknown): string {
   return v == null ? "" : String(v);
+}
+
+// Loose RFC-5322-ish email check — enough to reject obvious junk, not a validator.
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+export function isEmail(s: string): boolean {
+  return EMAIL_RE.test(s);
+}
+
+// Normalize a list of invitee emails: split a raw cell/array on commas, semicolons
+// and whitespace, lowercase, drop invalid + duplicates, preserving first-seen order.
+export function normalizeInvitees(input: unknown): string[] {
+  const raw = Array.isArray(input) ? input.map((v) => str(v)) : str(input).split(/[,;\s]+/);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const email = item.trim().toLowerCase();
+    if (!email || !isEmail(email) || seen.has(email)) continue;
+    seen.add(email);
+    out.push(email);
+  }
+  return out;
 }
 
 function num(v: unknown): number {
@@ -71,6 +106,10 @@ export function rowToPlace(row: unknown[]): Place {
     notes: str(row[9]),
     created_at: str(row[10]),
     updated_at: str(row[11]),
+    created_by: str(row[12]),
+    updated_by: str(row[13]),
+    invitees: normalizeInvitees(row[14]),
+    deleted_at: str(row[15]),
   };
 }
 
@@ -84,6 +123,7 @@ export interface PlaceInput {
   category: string;
   notes: string;
   status?: PlaceStatus;
+  invitees: string[];
 }
 
 // Validate + normalize raw JSON from a request into PlaceInput, or return an
@@ -122,11 +162,12 @@ export function parsePlaceInput(
       category: str(b.category).trim(),
       notes: str(b.notes),
       status,
+      invitees: normalizeInvitees(b.invitees),
     },
   };
 }
 
-// Map a Place back to a flat row of 12 cells in column order.
+// Map a Place back to a flat row of cells in column order.
 export function placeToRow(p: Place): (string | number)[] {
   return [
     p.id,
@@ -141,5 +182,9 @@ export function placeToRow(p: Place): (string | number)[] {
     p.notes,
     p.created_at,
     p.updated_at,
+    p.created_by,
+    p.updated_by,
+    p.invitees.join(", "),
+    p.deleted_at,
   ];
 }

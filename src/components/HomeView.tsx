@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
+import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
 import type { Place } from "@/lib/places";
+import { formatBangkok } from "@/lib/format";
 import { isWithinWindow } from "@/lib/dates";
 import SpotList from "./SpotList";
 import SpotForm, { type SpotPayload } from "./SpotForm";
@@ -27,6 +29,7 @@ export default function HomeView({
   const [places, setPlaces] = useState<Place[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Place | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,6 +83,8 @@ export default function HomeView({
   async function onSave(payload: SpotPayload, id: string | null) {
     setBusy(true);
     setError("");
+    setNotice("");
+    showLoading(id ? "Saving changes…" : "Adding spot…");
     try {
       const res = await fetch(id ? `/api/places/${id}` : "/api/places", {
         method: id ? "PUT" : "POST",
@@ -89,13 +94,18 @@ export default function HomeView({
       const data = await res.json();
       if (!res.ok || !data.ok) {
         setError(data.error ?? "Save failed");
+        showError(data.error ?? "Save failed");
         return;
       }
       upsertLocal(data.place as Place);
+      setNotice(describeInvite(data.invite));
       setShowForm(false);
       setEditing(null);
+      showSuccess(id ? "Changes saved" : "Spot added");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed");
+      const msg = e instanceof Error ? e.message : "Save failed";
+      setError(msg);
+      showError(msg);
     } finally {
       setBusy(false);
     }
@@ -103,6 +113,7 @@ export default function HomeView({
 
   async function setVisited(id: string, action: "visit" | "unvisit") {
     setError("");
+    showLoading("Updating…");
     try {
       const res = await fetch(`/api/places/${id}`, {
         method: "PUT",
@@ -112,18 +123,66 @@ export default function HomeView({
       const data = await res.json();
       if (!res.ok || !data.ok) {
         setError(data.error ?? "Update failed");
+        showError(data.error ?? "Update failed");
         return;
       }
       upsertLocal(data.place as Place);
+      showSuccess(action === "visit" ? "Marked visited" : "Marked planned");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Update failed");
+      const msg = e instanceof Error ? e.message : "Update failed";
+      setError(msg);
+      showError(msg);
+    }
+  }
+
+  function onView(p: Place) {
+    Swal.fire({
+      title: esc(p.place_name),
+      html: detailsHtml(p),
+      confirmButtonText: "Close",
+      confirmButtonColor: "#db2777",
+    });
+  }
+
+  async function onDelete(id: string) {
+    const confirmed = await Swal.fire({
+      title: "Delete this spot?",
+      text: "It will be hidden from your list and calendar.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Delete",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#dc2626",
+    });
+    if (!confirmed.isConfirmed) return;
+    setError("");
+    showLoading("Deleting…");
+    try {
+      const res = await fetch(`/api/places/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? "Delete failed");
+        showError(data.error ?? "Delete failed");
+        return;
+      }
+      setPlaces((prev) => prev.filter((p) => p.id !== id));
+      showSuccess("Spot deleted");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Delete failed";
+      setError(msg);
+      showError(msg);
     }
   }
 
   async function logout() {
-    await fetch("/api/auth", { method: "DELETE" });
-    router.replace("/login");
-    router.refresh();
+    showLoading("Logging out…");
+    try {
+      await fetch("/api/auth", { method: "DELETE" });
+      router.replace("/login");
+      router.refresh();
+    } catch (e) {
+      showError(e instanceof Error ? e.message : "Logout failed");
+    }
   }
 
   // Build the feed URL after mount — window.origin isn't available during SSR,
@@ -140,14 +199,15 @@ export default function HomeView({
       await navigator.clipboard.writeText(feedUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
+      showSuccess("Calendar URL copied");
     } catch {
       /* clipboard may be blocked; ignore */
     }
   }
 
   return (
-    <div className="flex flex-1 flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-black/10 dark:border-white/10 px-4 py-3">
+    <div className="flex h-dvh flex-col overflow-hidden">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-black/10 dark:border-white/10 px-4 py-3">
         <div>
           <h1 className="text-lg font-semibold">Date Spot Planner</h1>
           <BuildInfo />
@@ -182,8 +242,8 @@ export default function HomeView({
         </div>
       </header>
 
-      <div className="grid flex-1 grid-cols-1 lg:grid-cols-2">
-        <section className="order-2 overflow-y-auto p-4 lg:order-1">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_1fr] lg:grid-cols-2 lg:grid-rows-1">
+        <section className="order-2 min-h-0 overflow-y-auto p-4 lg:order-1">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="font-medium">
               Spots{" "}
@@ -198,10 +258,25 @@ export default function HomeView({
           </div>
 
           {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
+          {notice && (
+            <p className="mb-2 flex items-start justify-between gap-2 rounded-lg bg-pink-50 px-3 py-2 text-sm text-pink-800 dark:bg-pink-900/30 dark:text-pink-200">
+              <span>{notice}</span>
+              <button
+                onClick={() => setNotice("")}
+                aria-label="Dismiss"
+                className="shrink-0 opacity-60 hover:opacity-100"
+              >
+                ×
+              </button>
+            </p>
+          )}
 
           {showForm && (
             <div className="mb-4 rounded-xl border border-black/10 dark:border-white/15 p-4">
               <SpotForm
+                // Remount when switching spots (or to "add") so the form's
+                // initial-seeded state can't linger from a previous edit.
+                key={editing?.id ?? "new"}
                 initial={editing}
                 busy={busy}
                 onSave={onSave}
@@ -221,15 +296,17 @@ export default function HomeView({
               places={displayed}
               onConfirm={(id) => setVisited(id, "visit")}
               onRevert={(id) => setVisited(id, "unvisit")}
+              onView={onView}
               onEdit={(p) => {
                 setEditing(p);
                 setShowForm(true);
               }}
+              onDelete={onDelete}
             />
           )}
         </section>
 
-        <section className="order-1 h-[40vh] lg:order-2 lg:h-auto">
+        <section className="order-1 min-h-0 h-[40vh] lg:order-2 lg:h-auto">
           <MapView
             places={displayed}
             preview={showForm ? preview : null}
@@ -240,6 +317,63 @@ export default function HomeView({
       </div>
     </div>
   );
+}
+
+// Shape returned by the places API under `invite` (mirrors lib/gmail
+// SendInvitesResult); null when there was nobody to notify.
+interface InviteResult {
+  sent: string[];
+  failed: string[];
+  error?: string;
+}
+
+// Turn an invite outcome into a one-line user notice ("" = show nothing).
+function describeInvite(invite: InviteResult | null | undefined): string {
+  if (!invite) return "";
+  const sent = invite.sent?.length ?? 0;
+  if (invite.error === "no_gmail_grant") {
+    return "Spot saved, but invites couldn't be sent — log out and sign in again to grant Gmail access, then re-add the invitee.";
+  }
+  if (invite.failed?.length && sent === 0) {
+    return "Spot saved, but the invite email failed to send. Try editing the spot to retry.";
+  }
+  if (sent > 0) {
+    const partial = invite.failed?.length ? ` (${invite.failed.length} failed)` : "";
+    return `Invite emailed to ${sent} ${sent === 1 ? "person" : "people"}${partial}.`;
+  }
+  return "";
+}
+
+// Escape user-supplied text before dropping it into Swal's `html`.
+function esc(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
+  );
+}
+
+// Build the read-only details body for the View modal.
+function detailsHtml(p: Place): string {
+  const rows: Array<[string, string]> = [
+    ["Status", p.status],
+    ["When", formatBangkok(p.planned_date)],
+  ];
+  if (p.category) rows.push(["Category", p.category]);
+  if (p.invitees.length > 0) rows.push(["Invitees", p.invitees.join(", ")]);
+  if (p.notes) rows.push(["Notes", p.notes]);
+  if (p.status === "visited" && p.visited_at) rows.push(["Visited", formatBangkok(p.visited_at)]);
+
+  const list = rows
+    .map(
+      ([label, value]) =>
+        `<div style="margin-bottom:6px"><span style="opacity:.6">${esc(label)}:</span> ${esc(value)}</div>`,
+    )
+    .join("");
+
+  const maps = p.maps_url
+    ? `<div style="margin-top:10px"><a href="${esc(p.maps_url)}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline">Open in Maps</a></div>`
+    : "";
+
+  return `<div style="text-align:left;font-size:14px">${list}${maps}</div>`;
 }
 
 function BuildInfo() {

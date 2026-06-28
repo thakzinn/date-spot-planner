@@ -57,6 +57,26 @@ export function verifySession(token: string): SessionUser | null {
   }
 }
 
+// --- calendar feed token ----------------------------------------------------
+// The feed token is the user's email, base64url-encoded. NOTE: base64 is an
+// *encoding*, not encryption — it's reversible and emails are guessable, so this
+// token is an identifier, not a secret. The calendar route additionally checks
+// the decoded email belongs to an active registered user before serving a feed.
+export function encodeFeedToken(email: string): string {
+  return b64url(Buffer.from(email.trim().toLowerCase(), "utf8"));
+}
+
+// Decode a feed token back to an email, or "" if it isn't valid base64url / not
+// an email-looking string.
+export function decodeFeedToken(token: string): string {
+  try {
+    const s = Buffer.from(token, "base64url").toString("utf8").trim().toLowerCase();
+    return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s) ? s : "";
+  } catch {
+    return "";
+  }
+}
+
 export function cookieOptions() {
   return {
     httpOnly: true,

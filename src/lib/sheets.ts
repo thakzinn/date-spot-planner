@@ -7,6 +7,7 @@ import { GoogleAuth } from "google-auth-library";
 import { nowBangkokISO } from "./dates";
 import {
   FIRST_DATA_ROW,
+  LAST_COLUMN,
   SHEET_TAB,
   placeToRow,
   rowToPlace,
@@ -52,27 +53,32 @@ function spreadsheetId(): string {
 export async function getHeaderRow(): Promise<string[]> {
   const res = await client().spreadsheets.values.get({
     spreadsheetId: spreadsheetId(),
-    range: `${SHEET_TAB}!A1:L1`,
+    range: `${SHEET_TAB}!A1:${LAST_COLUMN}1`,
   });
   return (res.data.values?.[0] ?? []).map((c) => String(c ?? ""));
 }
 
-// All data rows mapped to Place objects. Returns [] when only the header exists
-// (Sheets omits `values` entirely in that case).
+// All (non-deleted) data rows mapped to Place objects. Returns [] when only the
+// header exists (Sheets omits `values` entirely in that case). Soft-deleted rows
+// (non-empty `deleted_at`) are kept in the sheet but excluded here, so they
+// disappear from the list, map, calendar feed, and getPlaceById.
 export async function getAllPlaces(): Promise<Place[]> {
   const res = await client().spreadsheets.values.get({
     spreadsheetId: spreadsheetId(),
-    range: `${SHEET_TAB}!A${FIRST_DATA_ROW}:L`,
+    range: `${SHEET_TAB}!A${FIRST_DATA_ROW}:${LAST_COLUMN}`,
   });
   const rows = res.data.values ?? [];
-  return rows.filter((r) => String(r?.[0] ?? "").trim() !== "").map(rowToPlace);
+  return rows
+    .filter((r) => String(r?.[0] ?? "").trim() !== "")
+    .map(rowToPlace)
+    .filter((p) => !p.deleted_at);
 }
 
 // Append a new place as the next data row.
 export async function appendPlace(place: Place): Promise<void> {
   await client().spreadsheets.values.append({
     spreadsheetId: spreadsheetId(),
-    range: `${SHEET_TAB}!A:L`,
+    range: `${SHEET_TAB}!A:${LAST_COLUMN}`,
     valueInputOption: "RAW",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [placeToRow(place)] },
@@ -87,18 +93,25 @@ async function findRowNumber(id: string): Promise<number> {
     range: `${SHEET_TAB}!A${FIRST_DATA_ROW}:A`,
   });
   const ids = res.data.values ?? [];
-  const idx = ids.findIndex((r) => String(r?.[0] ?? "") === id);
-  if (idx === -1) throw new PlaceNotFoundError(id);
-  return FIRST_DATA_ROW + idx;
+  const matches: number[] = [];
+  ids.forEach((r, i) => {
+    if (String(r?.[0] ?? "") === id) matches.push(FIRST_DATA_ROW + i);
+  });
+  if (matches.length === 0) throw new PlaceNotFoundError(id);
+  // Refuse to guess when an id is duplicated — overwriting the first match
+  // silently clobbers a different spot's row (the data-loss bug).
+  if (matches.length > 1)
+    throw new Error(`Ambiguous id "${id}" matches rows ${matches.join(", ")}`);
+  return matches[0];
 }
 
-// Overwrite the full row (A:L) for an existing place. Throws PlaceNotFoundError
+// Overwrite the full row (A:O) for an existing place. Throws PlaceNotFoundError
 // if the id is gone.
 export async function updatePlaceById(place: Place): Promise<void> {
   const rowNum = await findRowNumber(place.id);
   await client().spreadsheets.values.update({
     spreadsheetId: spreadsheetId(),
-    range: `${SHEET_TAB}!A${rowNum}:L${rowNum}`,
+    range: `${SHEET_TAB}!A${rowNum}:${LAST_COLUMN}${rowNum}`,
     valueInputOption: "RAW",
     requestBody: { values: [placeToRow(place)] },
   });
@@ -111,13 +124,15 @@ export async function getPlaceById(id: string): Promise<Place | null> {
 }
 
 // ---- users registry (tab `users`) --------------------------------------
-// Columns: A=email | B=name | C=active | D=created_at. This is a self-service
-// registry, NOT a credential store — no passwords or tokens live here. New
-// Google sign-ins are appended automatically and allowed in (the real gate is
-// Google's Test-users list while the OAuth app stays in "Testing"). Set a
-// person's `active` cell to FALSE to block them without deleting the row.
+// Columns: A=email | B=name | C=active | D=created_at | E=gmail_refresh_token.
+// A self-service registry that doubles as the store for each user's Gmail
+// refresh token — the one credential we DO keep, so the app can send date
+// invites "as" that user via the Gmail API (see lib/gmail.ts). New Google
+// sign-ins are appended automatically and allowed in (the real gate is Google's
+// Test-users list while the OAuth app stays in "Testing"). Set a person's
+// `active` cell to FALSE to block them without deleting the row.
 const USERS_TAB = "users";
-const USERS_HEADER = ["email", "name", "active", "created_at"];
+const USERS_HEADER = ["email", "name", "active", "created_at", "gmail_refresh_token"];
 
 function isActive(cell: unknown): boolean {
   const s = String(cell ?? "").trim().toLowerCase();
@@ -136,16 +151,83 @@ async function ensureUsersTab(): Promise<void> {
   });
   await client().spreadsheets.values.update({
     spreadsheetId: spreadsheetId(),
-    range: `${USERS_TAB}!A1:D1`,
+    range: `${USERS_TAB}!A1:E1`,
     valueInputOption: "RAW",
     requestBody: { values: [USERS_HEADER] },
   });
+}
+
+// Resolve the 1-based row number in the users tab for an email, or 0 if absent.
+async function findUserRow(email: string): Promise<number> {
+  const target = email.trim().toLowerCase();
+  if (!target) return 0;
+  const res = await client().spreadsheets.values.get({
+    spreadsheetId: spreadsheetId(),
+    range: `${USERS_TAB}!A2:A`,
+  });
+  const rows = res.data.values ?? [];
+  const i = rows.findIndex((r) => String(r?.[0] ?? "").trim().toLowerCase() === target);
+  return i === -1 ? 0 : i + 2; // +2: data starts at row 2
+}
+
+// Persist a user's Gmail refresh token (column E). No-op if the user row is gone.
+// Google only returns a refresh token on the first offline consent, so callers
+// must skip empty tokens rather than clobbering a previously stored one.
+export async function setUserGmailToken(email: string, refreshToken: string): Promise<void> {
+  if (!refreshToken) return;
+  await ensureUsersTab();
+  const row = await findUserRow(email);
+  if (!row) return;
+  await client().spreadsheets.values.update({
+    spreadsheetId: spreadsheetId(),
+    range: `${USERS_TAB}!E${row}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[refreshToken]] },
+  });
+}
+
+// Read a user's stored Gmail refresh token, or "" if none / user absent.
+export async function getUserGmailToken(email: string): Promise<string> {
+  const target = email.trim().toLowerCase();
+  if (!target) return "";
+  let rows: unknown[][];
+  try {
+    const res = await client().spreadsheets.values.get({
+      spreadsheetId: spreadsheetId(),
+      range: `${USERS_TAB}!A2:E`,
+    });
+    rows = res.data.values ?? [];
+  } catch {
+    return "";
+  }
+  const existing = rows.find((r) => String(r?.[0] ?? "").trim().toLowerCase() === target);
+  return existing ? String(existing[4] ?? "").trim() : "";
 }
 
 // Outcome of a sign-in attempt against the registry.
 //   active   -> may enter
 //   disabled -> known but blocked (active set to a falsy value)
 export type AuthzResult = "active" | "disabled";
+
+// Read-only: is this email a known, active user? Used to authorize the per-user
+// calendar feed token (base64-encoded email). Returns false if the users tab
+// doesn't exist yet or the email isn't registered.
+export async function isActiveUser(email: string): Promise<boolean> {
+  const target = email.trim().toLowerCase();
+  if (!target) return false;
+  let rows: unknown[][];
+  try {
+    const res = await client().spreadsheets.values.get({
+      spreadsheetId: spreadsheetId(),
+      range: `${USERS_TAB}!A2:C`,
+    });
+    rows = res.data.values ?? [];
+  } catch {
+    return false; // users tab missing or unreadable -> deny
+  }
+  const existing = rows.find((r) => String(r?.[0] ?? "").trim().toLowerCase() === target);
+  return existing ? isActive(existing[2]) : false;
+}
 
 // Register the user on first sign-in and report whether they may enter.
 // - known + active   -> "active"

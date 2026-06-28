@@ -5,7 +5,7 @@
 import { NextResponse } from "next/server";
 import { AUTH_COOKIE, cookieOptions, signSession } from "@/lib/auth";
 import { callbackUrl, exchangeCode, OAUTH_STATE_COOKIE } from "@/lib/google-oauth";
-import { registerAndAuthorizeUser } from "@/lib/sheets";
+import { registerAndAuthorizeUser, setUserGmailToken } from "@/lib/sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,6 +47,18 @@ export async function GET(req: Request) {
     return fail(req, "lookup_failed");
   }
   if (result !== "active") return fail(req, "not_allowed");
+
+  // Persist the Gmail refresh token so we can later send invites as this user.
+  // Best-effort: a failure here must not block sign-in. Empty on repeat logins
+  // (Google only reissues the token with prompt=consent) — setUserGmailToken
+  // skips empties so a prior token isn't clobbered.
+  if (identity.refreshToken) {
+    try {
+      await setUserGmailToken(identity.email, identity.refreshToken);
+    } catch {
+      /* token store failed — user can still sign in; invites just won't send */
+    }
+  }
 
   const res = NextResponse.redirect(new URL("/", req.url));
   res.cookies.set(

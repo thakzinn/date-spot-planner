@@ -12,6 +12,8 @@ the rest of the app is built.
 2. Top bar → project dropdown → **New Project**. Name it e.g. `date-spot-planner`. Create, then select it.
 3. Open <https://console.cloud.google.com/apis/library/sheets.googleapis.com>, make sure your new
    project is selected, and click **Enable**.
+4. Also enable the **Gmail API** (used to email date invites "as" the signed-in user):
+   open <https://console.cloud.google.com/apis/library/gmail.googleapis.com> and click **Enable**.
 
 ## Part B — Service account + JSON key
 
@@ -34,17 +36,25 @@ the rest of the app is built.
    **uncheck "Notify people"**. Send/Share.
 4. Create a tab (bottom sheet tab) named exactly **`places`** (lowercase).
 5. Click cell **A1** and paste this **exact** header row (tab-separated — pasting this single line
-   fills A1:L1):
+   fills A1:P1):
 
    ```
-   id	place_name	lat	lng	maps_url	planned_date	status	visited_at	category	notes	created_at	updated_at
+   id	place_name	lat	lng	maps_url	planned_date	status	visited_at	category	notes	created_at	updated_at	created_by	updated_by	invitees	deleted_at
    ```
 
-   > If pasting splits it oddly, type the 12 headers into A1–L1 manually, in this order:
-   > `id, place_name, lat, lng, maps_url, planned_date, status, visited_at, category, notes, created_at, updated_at`
+   > If pasting splits it oddly, type the 16 headers into A1–P1 manually, in this order:
+   > `id, place_name, lat, lng, maps_url, planned_date, status, visited_at, category, notes, created_at, updated_at, created_by, updated_by, invitees, deleted_at`
+   >
+   > **Upgrading an existing sheet?** Add **`invitees`** in cell **O1** and **`deleted_at`** in
+   > cell **P1** — existing rows need nothing else (a blank `invitees` cell means "nobody invited";
+   > a blank `deleted_at` means the spot is live). `deleted_at` is set to a timestamp when you delete
+   > a spot in the app (a **soft delete** — the row stays but is hidden everywhere).
 
 6. You do **not** need to create the **`users`** tab by hand — the app **auto-creates** it
-   (columns `email | name | active | created_at`) on the first sign-in. Anyone who completes Google
+   (columns `email | name | active | created_at | gmail_refresh_token`) on the first sign-in. The
+   `gmail_refresh_token` cell holds that user's Gmail send token (so the app can email date invites
+   "as" them — see Part C2 and the Security notes); it is the one credential the sheet stores. Anyone
+   who completes Google
    sign-in is registered with `active=TRUE` and let in. To block someone, set their `active` cell to
    `FALSE` afterwards (they can't log in again; existing sessions last up to 90 days). The real gate
    on *who can reach sign-in at all* is the **Test users** list in the OAuth app (Part C2) while it
@@ -58,6 +68,14 @@ This lets people log in with their Google account instead of a shared passphrase
    configure the **OAuth consent screen**: User type **External**, fill app name + your email,
    and under **Audience** add your testers' emails (or keep it in "Testing" — that's fine for a
    private app). You do **not** need Google verification for a handful of users.
+   - Under **Data access → Add or remove scopes**, add the **`.../auth/gmail.send`** scope
+     (Gmail API, "Send email on your behalf"). This is what lets the app email invites as the user.
+     It is a **sensitive/restricted scope**: while the app stays in **Testing**, your listed test
+     users can grant it but will see an **"unverified app"** warning screen — click **Continue**.
+     (Full Google verification is only needed if you ever Publish the app, which you should not.)
+   - **Existing users must sign in again once** after this change to grant Gmail access — the app
+     re-prompts for consent and stores their send token. Until they do, their spots still save but
+     invites report "couldn't be sent — log out and sign in again."
 2. Go to <https://console.cloud.google.com/apis/credentials> → **Create Credentials** →
    **OAuth client ID** → Application type **Web application**.
 3. Under **Authorized redirect URIs**, add **both**:
@@ -82,9 +100,8 @@ This lets people log in with their Google account instead of a shared passphrase
    - `SESSION_SECRET` = a long random secret that signs the login cookie. Generate one with:
      `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
    - `APP_BASE_URL` = `http://localhost:3000` for local dev (set the Vercel URL in production).
-   - `FEED_TOKEN` = a long random string. Generate one with:
-     `node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"`
    - `APP_TIMEZONE` = leave as `Asia/Bangkok`.
+   - (No feed token to set — each user's iCal URL carries their own base64-encoded email.)
    - `GOOGLE_PRIVATE_KEY` — **the #1 thing people get wrong.** The JSON's `private_key` contains
      real newlines. Put it on **one line** with literal `\n` escapes, wrapped in double quotes:
 
@@ -151,7 +168,7 @@ Fix (already applied on this machine): point Node at the Windows trust store via
 3. Before the first deploy, expand **Environment Variables** and add **every** variable from your
    `.env` (Production scope), with the **same values**:
    `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_SHEET_ID`, `GOOGLE_OAUTH_CLIENT_ID`,
-   `GOOGLE_OAUTH_CLIENT_SECRET`, `SESSION_SECRET`, `APP_BASE_URL`, `FEED_TOKEN`, `APP_TIMEZONE`.
+   `GOOGLE_OAUTH_CLIENT_SECRET`, `SESSION_SECRET`, `APP_BASE_URL`, `APP_TIMEZONE`.
    - Set `APP_BASE_URL` to your real production URL, e.g. `https://<your-app>.vercel.app`.
    - Add that same `https://<your-app>.vercel.app/api/auth/google/callback` URL to the OAuth client's
      **Authorized redirect URIs** (Part C2, step 3) — otherwise Google sign-in fails in production.
@@ -163,32 +180,39 @@ Fix (already applied on this machine): point Node at the Windows trust store via
 6. Verify in production:
    - Home page loads (redirects to `/login`).
    - `https://<your-app>.vercel.app/api/health` → `{"ok":true,"headerOk":true,...}`.
-   - `https://<your-app>.vercel.app/api/calendar.ics?token=<FEED_TOKEN>` → a `200` with
-     `Content-Type: text/calendar`.
+   - `https://<your-app>.vercel.app/api/calendar.ics?token=<base64url(your-email)>` → a `200` with
+     `Content-Type: text/calendar`. (Copy the exact URL from the in-app "Copy calendar URL" button.)
 
 ---
 
 ## ⚠️ Security notes
 
-- **Anyone who has the iCal feed URL (which contains `FEED_TOKEN`) can read your calendar.**
-  Treat the full feed URL as a secret. To revoke access, change `FEED_TOKEN` (locally and in
-  Vercel) and re-subscribe with the new URL.
+- **The iCal feed token is the user's base64-encoded email — encoding, not encryption.** It is
+  reversible and emails are guessable, so the feed is *not* protected by a secret token. The only
+  gate is that the decoded email must be an **active** user in the `users` tab; set their `active`
+  cell to `FALSE` to revoke their feed (and login). Anyone who knows an active user's email can
+  reconstruct that user's feed URL, so keep the user list small and trusted.
 - Login is by **Google sign-in**. Everyone who signs in is **auto-registered** in the `users` tab
   with `active=TRUE` and let in, so the real access gate is the **Test users** list in the OAuth app
   — keep it in "Testing" mode and **do not click Publish** (publishing would let any Google account
   self-register). To block someone, set their `active` cell to `FALSE` in the `users` tab.
 - Note: `active=FALSE` blocks **new** logins. Someone already signed in keeps their session until it
   expires (up to 90 days) — rotate `SESSION_SECRET` to force everyone to re-authenticate at once.
-- Use a **high-entropy** `SESSION_SECRET` and `FEED_TOKEN`. `SESSION_SECRET` signs the login cookie;
-  if it leaks, someone could forge a session.
+- Use a **high-entropy** `SESSION_SECRET`. It signs the login cookie; if it leaks, someone could
+  forge a session.
+- The **`gmail_refresh_token`** in the `users` tab is a real credential: it lets the app send email
+  **as that user** (send-only — it cannot read their mailbox). Keep the Sheet shared only with the
+  service account and your trusted users. To revoke it, the user can remove the app at
+  <https://myaccount.google.com/permissions>, or you can clear their `gmail_refresh_token` cell
+  (after that, their invites stop sending until they sign in again).
 - Secrets live **only** in `.env` (gitignored) and Vercel env vars. Never commit `.env`.
 
 ---
 
 ## 📱 Subscribing on iPhone & Mac
 
-Your feed URL is:
-`https://<your-app>.vercel.app/api/calendar.ics?token=<FEED_TOKEN>`
+Your feed URL is personal — copy it from the app's **"Copy calendar URL"** button. It looks like:
+`https://<your-app>.vercel.app/api/calendar.ics?token=<base64url(your-email)>`
 
 **iPhone (iOS):**
 1. **Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar.**

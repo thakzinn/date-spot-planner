@@ -13,12 +13,16 @@ export default function SpotList({
   places,
   onConfirm,
   onRevert,
+  onView,
   onEdit,
+  onDelete,
 }: {
   places: Place[];
   onConfirm: (id: string) => void;
   onRevert: (id: string) => void;
+  onView: (p: Place) => void;
   onEdit: (p: Place) => void;
+  onDelete: (id: string) => void;
 }) {
   if (places.length === 0) {
     return <p className="py-8 text-center text-sm opacity-60">No spots in this range yet.</p>;
@@ -37,6 +41,14 @@ export default function SpotList({
             </div>
             <div className="text-sm opacity-70">{formatBangkok(p.planned_date)}</div>
             {p.category && <div className="text-xs opacity-60">{p.category}</div>}
+            {p.invitees.length > 0 && (
+              <div
+                className="mt-0.5 truncate text-xs opacity-70"
+                title={p.invitees.join(", ")}
+              >
+                👥 {p.invitees.length === 1 ? p.invitees[0] : `${p.invitees.length} invited`}
+              </div>
+            )}
             {p.notes && <div className="mt-0.5 text-xs opacity-70">{p.notes}</div>}
             {p.maps_url && (
               <a
@@ -65,9 +77,20 @@ export default function SpotList({
                 Confirm visited
               </button>
             )}
-            <button onClick={() => onEdit(p)} className="px-2.5 py-1 text-xs underline opacity-70">
-              Edit
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => onView(p)} className="px-2.5 py-1 text-xs underline opacity-70">
+                View
+              </button>
+              <button onClick={() => onEdit(p)} className="px-2.5 py-1 text-xs underline opacity-70">
+                Edit
+              </button>
+              <button
+                onClick={() => onDelete(p.id)}
+                className="px-2.5 py-1 text-xs text-red-600 underline opacity-70"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </li>
       ))}

@@ -1,9 +1,14 @@
 // Google OAuth 2.0 (Authorization Code flow) helper. Server-only.
-// We only use Google to *verify who the user is* (email + name). We do not
-// request or store any Google API scopes beyond basic profile/email.
+// We use Google to verify who the user is (email + name) AND to obtain a
+// gmail.send grant so the app can email date invites "as" the signed-in user.
+// The resulting refresh token is stored per-user in the `users` sheet.
 import { OAuth2Client } from "google-auth-library";
 
-const SCOPES = ["openid", "email", "profile"];
+// gmail.send lets us send mail on the user's behalf but NOT read their mailbox.
+// It is a "sensitive" scope: testers see an "unverified app" screen while the
+// OAuth app stays in Testing — fine for a private app (see SETUP.md Part C2).
+export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+const SCOPES = ["openid", "email", "profile", GMAIL_SEND_SCOPE];
 // Where Google sends the user back. Must EXACTLY match an Authorized redirect
 // URI in the OAuth client (scheme, host, path, no trailing slash).
 export const CALLBACK_PATH = "/api/auth/google/callback";
@@ -25,6 +30,17 @@ export function oauthClient(redirectUri: string): OAuth2Client {
   });
 }
 
+// Build a client primed with a stored refresh token. It transparently mints a
+// fresh access token on the next API call — used to send mail as the user.
+export function refreshTokenClient(refreshToken: string): OAuth2Client {
+  const client = new OAuth2Client({
+    clientId: requireEnv("GOOGLE_OAUTH_CLIENT_ID"),
+    clientSecret: requireEnv("GOOGLE_OAUTH_CLIENT_SECRET"),
+  });
+  client.setCredentials({ refresh_token: refreshToken });
+  return client;
+}
+
 // Resolve the absolute callback URL. Prefer APP_BASE_URL (set this in prod so
 // it matches the registered redirect URI even behind a proxy); else derive from
 // the incoming request's origin.
@@ -34,22 +50,28 @@ export function callbackUrl(req: Request): string {
 }
 
 // Step 1: the Google consent-screen URL to redirect the user to.
+// access_type "offline" + prompt "consent" forces Google to return a refresh
+// token (it only does so on explicit consent), which we need to send mail later.
 export function authUrl(redirectUri: string, state: string): string {
   return oauthClient(redirectUri).generateAuthUrl({
-    access_type: "online",
+    access_type: "offline",
     scope: SCOPES,
     state,
-    prompt: "select_account",
+    prompt: "consent select_account",
   });
 }
 
 export interface GoogleIdentity {
   email: string;
   name: string;
+  // Long-lived Gmail refresh token. Present only on first offline consent;
+  // empty on later sign-ins (Google reissues it only with prompt=consent).
+  refreshToken: string;
 }
 
 // Step 2: exchange the auth code for tokens and verify the ID token, returning
-// the user's verified email + name. Throws if anything fails to verify.
+// the user's verified email + name + (if granted) Gmail refresh token. Throws if
+// anything fails to verify.
 export async function exchangeCode(redirectUri: string, code: string): Promise<GoogleIdentity> {
   const client = oauthClient(redirectUri);
   const { tokens } = await client.getToken(code);
@@ -66,5 +88,6 @@ export async function exchangeCode(redirectUri: string, code: string): Promise<G
   return {
     email: payload.email.toLowerCase(),
     name: payload.name ?? payload.email,
+    refreshToken: tokens.refresh_token ?? "",
   };
 }

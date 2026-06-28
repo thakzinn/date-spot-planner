@@ -150,12 +150,12 @@ export function buildInvite(
   return lines.map(fold).join("\r\n") + "\r\n";
 }
 
-// Options for the published feed. When `confirmBaseUrl` + `feedToken` are given,
-// today's not-yet-visited events get a "confirm visit" link
-// (<base>/visit/<id>?token=<feedToken>) that opens the geolocation check-in page.
+// Options for the published feed. When `confirmBaseUrl` is given, today's
+// not-yet-visited events get a short "confirm visit" link (<base>/visit/<id>)
+// that opens the check-in page. The page itself gates on the signed-in session
+// (creator/invitee), so no token is carried in the URL.
 export interface CalendarOptions {
   confirmBaseUrl?: string;
-  feedToken?: string;
 }
 
 // Build a full VCALENDAR from already-filtered places.
@@ -163,13 +163,9 @@ export function buildCalendar(places: Place[], opts: CalendarOptions = {}): stri
   const base = opts.confirmBaseUrl?.replace(/\/$/, "");
   const eventLines = places
     .map((p) => {
-      const showConfirm =
-        base &&
-        opts.feedToken &&
-        p.status !== "visited" &&
-        isTodayBangkok(p.planned_date);
+      const showConfirm = base && p.status !== "visited" && isTodayBangkok(p.planned_date);
       const confirmUrl = showConfirm
-        ? `${base}/visit/${encodeURIComponent(p.id)}?token=${encodeURIComponent(opts.feedToken!)}`
+        ? `${base}/visit/${encodeURIComponent(p.id)}`
         : undefined;
       return buildEvent(p, { confirmUrl });
     })

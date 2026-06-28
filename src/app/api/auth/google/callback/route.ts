@@ -4,18 +4,35 @@
 // allowlist, and only then issue a session cookie.
 import { NextResponse } from "next/server";
 import { AUTH_COOKIE, cookieOptions, signSession } from "@/lib/auth";
-import { callbackUrl, exchangeCode, OAUTH_STATE_COOKIE } from "@/lib/google-oauth";
+import {
+  callbackUrl,
+  exchangeCode,
+  OAUTH_STATE_COOKIE,
+  OAUTH_NEXT_COOKIE,
+  safeNextPath,
+} from "@/lib/google-oauth";
 import { registerAndAuthorizeUser, setUserGmailToken } from "@/lib/sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Bounce back to the login page with a machine-readable reason.
+// Read a cookie value from the raw request header by name.
+function readCookie(req: Request, name: string): string | undefined {
+  return req.headers
+    .get("cookie")
+    ?.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`))?.[1];
+}
+
+// Bounce back to the login page with a machine-readable reason. Preserve the
+// pending `next` so the user still lands on their intended page after retrying.
 function fail(req: Request, reason: string) {
   const url = new URL("/login", req.url);
   url.searchParams.set("error", reason);
+  const next = safeNextPath(readCookie(req, OAUTH_NEXT_COOKIE));
+  if (next !== "/") url.searchParams.set("next", next);
   const res = NextResponse.redirect(url);
   res.cookies.set(OAUTH_STATE_COOKIE, "", { path: "/", maxAge: 0 });
+  res.cookies.set(OAUTH_NEXT_COOKIE, "", { path: "/", maxAge: 0 });
   return res;
 }
 
@@ -60,12 +77,15 @@ export async function GET(req: Request) {
     }
   }
 
-  const res = NextResponse.redirect(new URL("/", req.url));
+  // Land on the page the user was headed to before login (default home).
+  const next = safeNextPath(readCookie(req, OAUTH_NEXT_COOKIE));
+  const res = NextResponse.redirect(new URL(next, req.url));
   res.cookies.set(
     AUTH_COOKIE,
     signSession({ email: identity.email, name: identity.name }),
     cookieOptions(),
   );
   res.cookies.set(OAUTH_STATE_COOKIE, "", { path: "/", maxAge: 0 });
+  res.cookies.set(OAUTH_NEXT_COOKIE, "", { path: "/", maxAge: 0 });
   return res;
 }

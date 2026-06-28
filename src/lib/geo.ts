@@ -33,3 +33,13 @@ export function formatDistance(meters: number): string {
 
 // Beyond this, the page asks for an extra confirmation before marking visited.
 export const CONFIRM_DISTANCE_THRESHOLD_M = 500;
+
+// A lat/lng as a Google Maps pin link.
+export function googleMapsLink(lat: number, lng: number): string {
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+}
+
+// A lat/lng as an OpenStreetMap pin link (marker + zoom 18).
+export function openStreetMapLink(lat: number, lng: number): string {
+  return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=18/${lat}/${lng}`;
+}

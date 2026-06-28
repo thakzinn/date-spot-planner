@@ -32,7 +32,7 @@ export async function GET(req: Request) {
   // Prefer APP_BASE_URL (stable behind a proxy) for the confirm-visit links;
   // fall back to the request origin. Matches lib/google-oauth callbackUrl.
   const confirmBaseUrl = process.env.APP_BASE_URL?.replace(/\/$/, "") ?? reqUrl.origin;
-  const body = buildCalendar(feed, { confirmBaseUrl, feedToken: token });
+  const body = buildCalendar(feed, { confirmBaseUrl });
   return new NextResponse(body, {
     status: 200,
     headers: {

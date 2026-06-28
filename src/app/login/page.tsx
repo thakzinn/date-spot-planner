@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
+import { safeNextPath } from "@/lib/google-oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +17,16 @@ const ERRORS: Record<string, string> = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }) {
-  if (await isAuthenticated()) redirect("/");
+  const { error, next } = await searchParams;
+  const dest = safeNextPath(next);
+  // Already signed in? Honor the pending destination instead of always home.
+  if (await isAuthenticated()) redirect(dest);
 
-  const { error } = await searchParams;
   const message = error ? (ERRORS[error] ?? "Sign-in failed. Please try again.") : "";
+  const startUrl =
+    dest === "/" ? "/api/auth/google/start" : `/api/auth/google/start?next=${encodeURIComponent(dest)}`;
 
   return (
     <main className="flex flex-1 items-center justify-center p-6">
@@ -34,7 +39,7 @@ export default async function LoginPage({
         {message && <p className="text-sm text-red-600">{message}</p>}
 
         <a
-          href="/api/auth/google/start"
+          href={startUrl}
           className="flex w-full items-center justify-center gap-2 rounded-lg border border-black/15 dark:border-white/20 px-3 py-2 font-medium hover:bg-black/5 dark:hover:bg-white/10"
         >
           <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">

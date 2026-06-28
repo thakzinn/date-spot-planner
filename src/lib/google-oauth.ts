@@ -14,6 +14,17 @@ const SCOPES = ["openid", "email", "profile", GMAIL_SEND_SCOPE];
 export const CALLBACK_PATH = "/api/auth/google/callback";
 // Short-lived cookie holding the CSRF `state` between start and callback.
 export const OAUTH_STATE_COOKIE = "dsp_oauth_state";
+// Short-lived cookie holding the post-login destination across the round-trip.
+export const OAUTH_NEXT_COOKIE = "dsp_oauth_next";
+
+// Sanitize a post-login redirect target to an internal path. Only same-origin
+// absolute paths are allowed ("/visit/abc") — anything else (full URLs,
+// protocol-relative "//evil.com", empty) falls back to "/" to prevent an open
+// redirect.
+export function safeNextPath(next: string | null | undefined): string {
+  if (!next || !next.startsWith("/") || next.startsWith("//")) return "/";
+  return next;
+}
 
 function requireEnv(name: string): string {
   const v = process.env[name];

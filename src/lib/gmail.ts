@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { refreshTokenClient } from "./google-oauth";
 import { buildInvite } from "./ics";
 import { formatBangkok } from "./format";
+import { googleMapsLink, openStreetMapLink } from "./geo";
 import type { Place } from "./places";
 
 const SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
@@ -150,5 +151,112 @@ export async function sendInvites(
       failed: to,
       error: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+// ---- arrival check-in notice -------------------------------------------------
+// A plain text+HTML email (no calendar part) telling everyone on the plan that
+// the sender has arrived, with their live location as Google Maps + OSM links.
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
+  );
+}
+
+// multipart/alternative MIME (text/plain + text/html), base64 parts.
+function buildAlternativeMime(args: {
+  fromName: string;
+  fromEmail: string;
+  to: string[];
+  subject: string;
+  text: string;
+  html: string;
+}): string {
+  const alt = `dsp_alt_${randomUUID().replace(/-/g, "")}`;
+  const headers = [
+    `From: ${encodeHeader(args.fromName)} <${args.fromEmail}>`,
+    `To: ${args.to.join(", ")}`,
+    `Subject: ${encodeHeader(args.subject)}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${alt}"`,
+    "",
+  ].join("\r\n");
+
+  const body = [
+    `--${alt}`,
+    base64Part('text/plain; charset="UTF-8"', args.text),
+    `--${alt}`,
+    base64Part('text/html; charset="UTF-8"', args.html),
+    `--${alt}--`,
+    "",
+  ].join("\r\n");
+
+  return headers + "\r\n" + body;
+}
+
+export interface ArrivalResult {
+  sent: string[];
+  failed: string[];
+  error?: string;
+}
+
+// Tell `recipients` that `actor` has checked in at `place`, sharing their
+// current coordinates. Sent "as" the actor via their Gmail grant. Best-effort:
+// reports failures, never throws.
+export async function sendArrivalNotice(
+  actor: { email: string; name: string },
+  refreshToken: string,
+  place: Place,
+  recipients: string[],
+  location: { lat: number; lng: number },
+): Promise<ArrivalResult> {
+  const to = recipients.filter((r) => r && r !== actor.email);
+  if (to.length === 0) return { sent: [], failed: [] };
+  if (!refreshToken) return { sent: [], failed: to, error: "no_gmail_grant" };
+
+  const gmaps = googleMapsLink(location.lat, location.lng);
+  const osm = openStreetMapLink(location.lat, location.lng);
+  const coords = `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}`;
+  const subject = `📍 ${actor.name} arrived at ${place.place_name}`;
+
+  const text = [
+    `${actor.name} has checked in at ${place.place_name}.`,
+    "",
+    `Current location: ${coords}`,
+    `Google Maps: ${gmaps}`,
+    `OpenStreetMap: ${osm}`,
+  ].join("\n");
+
+  const html =
+    `<div style="font-family:system-ui,Arial,sans-serif;font-size:14px;line-height:1.5">` +
+    `<p><b>${escapeHtml(actor.name)}</b> has checked in at <b>${escapeHtml(place.place_name)}</b>.</p>` +
+    `<p>Current location: <b>${escapeHtml(coords)}</b></p>` +
+    `<p>` +
+    `📍 <a href="${gmaps}">Open in Google Maps</a><br/>` +
+    `🗺️ <a href="${osm}">Open in OpenStreetMap</a>` +
+    `</p></div>`;
+
+  const raw = Buffer.from(
+    buildAlternativeMime({
+      fromName: actor.name,
+      fromEmail: actor.email,
+      to,
+      subject,
+      text,
+      html,
+    }),
+    "utf8",
+  ).toString("base64url");
+
+  try {
+    await refreshTokenClient(refreshToken).request({
+      url: SEND_URL,
+      method: "POST",
+      data: { raw },
+    });
+    return { sent: to, failed: [] };
+  } catch (err) {
+    return { sent: [], failed: to, error: err instanceof Error ? err.message : String(err) };
   }
 }

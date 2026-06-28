@@ -43,6 +43,30 @@ the rest of the app is built.
    > If pasting splits it oddly, type the 12 headers into A1–L1 manually, in this order:
    > `id, place_name, lat, lng, maps_url, planned_date, status, visited_at, category, notes, created_at, updated_at`
 
+6. You do **not** need to create the **`users`** tab by hand — the app **auto-creates** it
+   (columns `email | name | active | created_at`) on the first sign-in. Anyone who completes Google
+   sign-in is registered with `active=TRUE` and let in. To block someone, set their `active` cell to
+   `FALSE` afterwards (they can't log in again; existing sessions last up to 90 days). The real gate
+   on *who can reach sign-in at all* is the **Test users** list in the OAuth app (Part C2) while it
+   stays in "Testing". The tab holds **no passwords** — just a registry of who signed in.
+
+## Part C2 — Google sign-in (OAuth 2.0 client)
+
+This lets people log in with their Google account instead of a shared passphrase.
+
+1. Open <https://console.cloud.google.com/auth/overview> (same project as Part A). If prompted,
+   configure the **OAuth consent screen**: User type **External**, fill app name + your email,
+   and under **Audience** add your testers' emails (or keep it in "Testing" — that's fine for a
+   private app). You do **not** need Google verification for a handful of users.
+2. Go to <https://console.cloud.google.com/apis/credentials> → **Create Credentials** →
+   **OAuth client ID** → Application type **Web application**.
+3. Under **Authorized redirect URIs**, add **both**:
+   - `http://localhost:3000/api/auth/google/callback` (local dev)
+   - `https://<your-app>.vercel.app/api/auth/google/callback` (production — add after you know the URL)
+   The path must match **exactly** (no trailing slash).
+4. Click **Create**. Copy the **Client ID** → `GOOGLE_OAUTH_CLIENT_ID` and the
+   **Client secret** → `GOOGLE_OAUTH_CLIENT_SECRET`.
+
 ## Part D — Local environment variables
 
 1. In the project folder, copy `.env.example` to `.env`:
@@ -54,7 +78,10 @@ the rest of the app is built.
 2. Fill in `.env`:
    - `GOOGLE_SERVICE_ACCOUNT_EMAIL` = the `client_email`.
    - `GOOGLE_SHEET_ID` = the Sheet ID from Part C.
-   - `SHARED_PASSPHRASE` = a long random passphrase (this gates the app for the two of you).
+   - `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` = from the OAuth client in Part C2.
+   - `SESSION_SECRET` = a long random secret that signs the login cookie. Generate one with:
+     `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
+   - `APP_BASE_URL` = `http://localhost:3000` for local dev (set the Vercel URL in production).
    - `FEED_TOKEN` = a long random string. Generate one with:
      `node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"`
    - `APP_TIMEZONE` = leave as `Asia/Bangkok`.
@@ -123,8 +150,11 @@ Fix (already applied on this machine): point Node at the Windows trust store via
    settings default.
 3. Before the first deploy, expand **Environment Variables** and add **every** variable from your
    `.env` (Production scope), with the **same values**:
-   `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_SHEET_ID`, `SHARED_PASSPHRASE`,
-   `FEED_TOKEN`, `APP_TIMEZONE`.
+   `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_SHEET_ID`, `GOOGLE_OAUTH_CLIENT_ID`,
+   `GOOGLE_OAUTH_CLIENT_SECRET`, `SESSION_SECRET`, `APP_BASE_URL`, `FEED_TOKEN`, `APP_TIMEZONE`.
+   - Set `APP_BASE_URL` to your real production URL, e.g. `https://<your-app>.vercel.app`.
+   - Add that same `https://<your-app>.vercel.app/api/auth/google/callback` URL to the OAuth client's
+     **Authorized redirect URIs** (Part C2, step 3) — otherwise Google sign-in fails in production.
    - For `GOOGLE_PRIVATE_KEY`, paste the **same single-line `\n`-escaped** value you used locally.
      Vercel's UI can mangle multi-line pastes — keep it one line. If `/api/health` fails in
      production but works locally, this value is almost always why.
@@ -143,8 +173,14 @@ Fix (already applied on this machine): point Node at the Windows trust store via
 - **Anyone who has the iCal feed URL (which contains `FEED_TOKEN`) can read your calendar.**
   Treat the full feed URL as a secret. To revoke access, change `FEED_TOKEN` (locally and in
   Vercel) and re-subscribe with the new URL.
-- Use a **high-entropy** `SHARED_PASSPHRASE` and `FEED_TOKEN`. There are no accounts and no
-  lockout — a weak passphrase is the only thing between the internet and your write actions.
+- Login is by **Google sign-in**. Everyone who signs in is **auto-registered** in the `users` tab
+  with `active=TRUE` and let in, so the real access gate is the **Test users** list in the OAuth app
+  — keep it in "Testing" mode and **do not click Publish** (publishing would let any Google account
+  self-register). To block someone, set their `active` cell to `FALSE` in the `users` tab.
+- Note: `active=FALSE` blocks **new** logins. Someone already signed in keeps their session until it
+  expires (up to 90 days) — rotate `SESSION_SECRET` to force everyone to re-authenticate at once.
+- Use a **high-entropy** `SESSION_SECRET` and `FEED_TOKEN`. `SESSION_SECRET` signs the login cookie;
+  if it leaks, someone could forge a session.
 - Secrets live **only** in `.env` (gitignored) and Vercel env vars. Never commit `.env`.
 
 ---

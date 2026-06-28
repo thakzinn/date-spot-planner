@@ -16,7 +16,13 @@ const MapView = dynamic(() => import("./MapView"), {
   ),
 });
 
-export default function HomeView({ feedToken }: { feedToken: string }) {
+export default function HomeView({
+  feedToken,
+  userEmail,
+}: {
+  feedToken: string;
+  userEmail: string;
+}) {
   const router = useRouter();
   const [places, setPlaces] = useState<Place[]>([]);
   const [loading, setLoading] = useState(true);
@@ -164,6 +170,11 @@ export default function HomeView({ feedToken }: { feedToken: string }) {
             >
               {copied ? "Copied!" : "Copy calendar URL"}
             </button>
+          )}
+          {userEmail && (
+            <span className="hidden text-xs opacity-60 sm:inline" title={userEmail}>
+              {userEmail}
+            </span>
           )}
           <button onClick={logout} className="px-2 py-1.5 text-sm underline opacity-70">
             Log out

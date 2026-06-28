@@ -1,5 +1,7 @@
-// Shared-passphrase auth for two users. The cookie holds an HMAC token derived
-// from SHARED_PASSPHRASE — never the passphrase itself. Server-only.
+// Session auth for Google-SSO'd users. The cookie holds a signed payload
+// { email, name } — identity comes from Google, the cookie just proves we
+// already verified it. No passwords or Google tokens are ever stored.
+// Server-only.
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 
@@ -16,20 +18,43 @@ export function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(sha256(a), sha256(b));
 }
 
-function passphrase(): string {
-  const p = process.env.SHARED_PASSPHRASE;
-  if (!p) throw new Error("Missing SHARED_PASSPHRASE");
-  return p;
+function sessionSecret(): string {
+  const s = process.env.SESSION_SECRET;
+  if (!s) throw new Error("Missing SESSION_SECRET");
+  return s;
 }
 
-// The opaque token stored in the cookie.
-export function expectedToken(): string {
-  return createHmac("sha256", passphrase()).update("dsp-auth-v1").digest("hex");
+function b64url(buf: Buffer): string {
+  return buf.toString("base64url");
 }
 
-// Login check: does the submitted passphrase match SHARED_PASSPHRASE?
-export function checkPassphrase(submitted: string): boolean {
-  return safeEqual(submitted ?? "", passphrase());
+export interface SessionUser {
+  email: string;
+  name: string;
+}
+
+// Sign a session payload into an opaque "<payload>.<hmac>" token.
+export function signSession(user: SessionUser): string {
+  const payload = b64url(Buffer.from(JSON.stringify(user), "utf8"));
+  const sig = b64url(createHmac("sha256", sessionSecret()).update(payload).digest());
+  return `${payload}.${sig}`;
+}
+
+// Verify a token's signature and return its user, or null if invalid/tampered.
+export function verifySession(token: string): SessionUser | null {
+  const dot = token.indexOf(".");
+  if (dot <= 0) return null;
+  const payload = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const expected = b64url(createHmac("sha256", sessionSecret()).update(payload).digest());
+  try {
+    if (!safeEqual(sig, expected)) return null;
+    const obj = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (typeof obj?.email !== "string" || typeof obj?.name !== "string") return null;
+    return { email: obj.email, name: obj.name };
+  } catch {
+    return null;
+  }
 }
 
 export function cookieOptions() {
@@ -42,14 +67,19 @@ export function cookieOptions() {
   };
 }
 
-// True if the current request carries a valid auth cookie.
-export async function isAuthenticated(): Promise<boolean> {
+// The signed-in user for the current request, or null.
+export async function getSession(): Promise<SessionUser | null> {
   const store = await cookies();
   const token = store.get(AUTH_COOKIE)?.value ?? "";
-  if (!token) return false;
+  if (!token) return null;
   try {
-    return safeEqual(token, expectedToken());
+    return verifySession(token);
   } catch {
-    return false;
+    return null;
   }
+}
+
+// True if the current request carries a valid session cookie.
+export async function isAuthenticated(): Promise<boolean> {
+  return (await getSession()) !== null;
 }

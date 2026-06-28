@@ -4,6 +4,7 @@
 
 import { sheets, type sheets_v4 } from "@googleapis/sheets";
 import { GoogleAuth } from "google-auth-library";
+import { nowBangkokISO } from "./dates";
 import {
   FIRST_DATA_ROW,
   SHEET_TAB,
@@ -107,4 +108,72 @@ export async function updatePlaceById(place: Place): Promise<void> {
 export async function getPlaceById(id: string): Promise<Place | null> {
   const all = await getAllPlaces();
   return all.find((p) => p.id === id) ?? null;
+}
+
+// ---- users registry (tab `users`) --------------------------------------
+// Columns: A=email | B=name | C=active | D=created_at. This is a self-service
+// registry, NOT a credential store — no passwords or tokens live here. New
+// Google sign-ins are appended automatically and allowed in (the real gate is
+// Google's Test-users list while the OAuth app stays in "Testing"). Set a
+// person's `active` cell to FALSE to block them without deleting the row.
+const USERS_TAB = "users";
+const USERS_HEADER = ["email", "name", "active", "created_at"];
+
+function isActive(cell: unknown): boolean {
+  const s = String(cell ?? "").trim().toLowerCase();
+  // Blank/missing `active` defaults to allowed; only explicit falsy values block.
+  return !["false", "no", "0", "inactive", "disabled"].includes(s);
+}
+
+// Create the `users` tab (with a header row) if it doesn't exist yet.
+async function ensureUsersTab(): Promise<void> {
+  const meta = await client().spreadsheets.get({ spreadsheetId: spreadsheetId() });
+  const exists = (meta.data.sheets ?? []).some((s) => s.properties?.title === USERS_TAB);
+  if (exists) return;
+  await client().spreadsheets.batchUpdate({
+    spreadsheetId: spreadsheetId(),
+    requestBody: { requests: [{ addSheet: { properties: { title: USERS_TAB } } }] },
+  });
+  await client().spreadsheets.values.update({
+    spreadsheetId: spreadsheetId(),
+    range: `${USERS_TAB}!A1:D1`,
+    valueInputOption: "RAW",
+    requestBody: { values: [USERS_HEADER] },
+  });
+}
+
+// Outcome of a sign-in attempt against the registry.
+//   active   -> may enter
+//   disabled -> known but blocked (active set to a falsy value)
+export type AuthzResult = "active" | "disabled";
+
+// Register the user on first sign-in and report whether they may enter.
+// - known + active   -> "active"
+// - known + inactive -> "disabled" (you set active=FALSE to block them)
+// - unknown          -> append with active=TRUE and let them in
+export async function registerAndAuthorizeUser(
+  email: string,
+  name: string,
+): Promise<AuthzResult> {
+  const target = email.trim().toLowerCase();
+  if (!target) return "disabled";
+  await ensureUsersTab();
+
+  const res = await client().spreadsheets.values.get({
+    spreadsheetId: spreadsheetId(),
+    range: `${USERS_TAB}!A2:C`,
+  });
+  const rows = (res.data.values ?? []).filter((r) => String(r?.[0] ?? "").trim() !== "");
+  const existing = rows.find((r) => String(r?.[0] ?? "").trim().toLowerCase() === target);
+  if (existing) return isActive(existing[2]) ? "active" : "disabled";
+
+  // New sign-in: auto-register as active. Block later by setting active=FALSE.
+  await client().spreadsheets.values.append({
+    spreadsheetId: spreadsheetId(),
+    range: `${USERS_TAB}!A:D`,
+    valueInputOption: "RAW",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [[target, name, "TRUE", nowBangkokISO()]] },
+  });
+  return "active";
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
 import type { Place } from "@/lib/places";
@@ -222,6 +223,12 @@ export default function HomeView({
           >
             + Add spot
           </button>
+          <Link
+            href="/plans"
+            className="rounded-lg border border-black/15 dark:border-white/25 px-3 py-1.5 text-sm"
+          >
+            Plans &amp; Timeline
+          </Link>
           {feedUrl && (
             <button
               onClick={copyFeed}

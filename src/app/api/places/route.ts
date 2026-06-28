@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { appendPlace, getAllPlaces } from "@/lib/sheets";
-import { getSession, isAuthenticated } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 import { nowBangkokISO } from "@/lib/dates";
 import { parsePlaceInput, type Place } from "@/lib/places";
 import { maybeInvite } from "@/lib/invites";
@@ -16,9 +16,15 @@ function unauthorized() {
 }
 
 export async function GET() {
-  if (!(await isAuthenticated())) return unauthorized();
+  const session = await getSession();
+  if (!session) return unauthorized();
   try {
-    const places = await getAllPlaces();
+    const all = await getAllPlaces();
+    const email = session.email.trim().toLowerCase();
+    // Only this user's spots: ones they created OR ones they're invited to.
+    const places = all.filter(
+      (p) => p.created_by.trim().toLowerCase() === email || p.invitees.includes(email),
+    );
     return NextResponse.json({ ok: true, places });
   } catch (err) {
     return NextResponse.json(

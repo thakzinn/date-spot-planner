@@ -50,7 +50,15 @@ the rest of the app is built.
    > a blank `deleted_at` means the spot is live). `deleted_at` is set to a timestamp when you delete
    > a spot in the app (a **soft delete** — the row stays but is hidden everywhere).
 
-6. You do **not** need to create the **`users`** tab by hand — the app **auto-creates** it
+6. You do **not** need to create the **`plans`** or **`milestones`** tabs by hand — the app
+   **auto-creates** them on first use of the **Plans & Timeline** section, with these headers:
+   - `plans`: `id | title | description | status | created_at | updated_at | created_by | updated_by | invitees | deleted_at`
+   - `milestones`: `id | plan_id | title | notes | due_date | status | done_at | order_index | checkpoints | created_at | updated_at | created_by | updated_by | deleted_at`
+
+   A milestone's `checkpoints` cell holds a JSON array of `{ id, title, due_date, done, done_at }`.
+   Both tabs use the same soft-delete (`deleted_at`) convention as `places`.
+
+7. You do **not** need to create the **`users`** tab by hand — the app **auto-creates** it
    (columns `email | name | active | created_at | gmail_refresh_token`) on the first sign-in. The
    `gmail_refresh_token` cell holds that user's Gmail send token (so the app can email date invites
    "as" them — see Part C2 and the Security notes); it is the one credential the sheet stores. Anyone

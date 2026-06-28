@@ -260,3 +260,39 @@ export async function sendArrivalNotice(
     return { sent: [], failed: to, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+// ---- generic plan/milestone notice ------------------------------------------
+// A plain HTML email (no calendar part) sent "as" `actor`, used for timeline
+// reminders and milestone confirm/extend notices. The caller builds the HTML.
+// A matching text/plain fallback is derived by stripping tags. Best-effort:
+// reports failures, never throws.
+export async function sendPlanNotice(
+  actor: { email: string; name: string },
+  refreshToken: string,
+  subject: string,
+  html: string,
+  recipients: string[],
+): Promise<ArrivalResult> {
+  const to = recipients.filter((r) => r && r !== actor.email);
+  if (to.length === 0) return { sent: [], failed: [] };
+  if (!refreshToken) return { sent: [], failed: to, error: "no_gmail_grant" };
+
+  const text = html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const raw = Buffer.from(
+    buildAlternativeMime({ fromName: actor.name, fromEmail: actor.email, to, subject, text, html }),
+    "utf8",
+  ).toString("base64url");
+
+  try {
+    await refreshTokenClient(refreshToken).request({ url: SEND_URL, method: "POST", data: { raw } });
+    return { sent: to, failed: [] };
+  } catch (err) {
+    return { sent: [], failed: to, error: err instanceof Error ? err.message : String(err) };
+  }
+}

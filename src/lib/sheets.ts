@@ -1,10 +1,10 @@
 // Google Sheets client for the `places` tab.
 // Uses a service account (JWT) + @googleapis/sheets. Server-only — never import
-// this into a client component.
-
-import { sheets, type sheets_v4 } from "@googleapis/sheets";
-import { GoogleAuth } from "google-auth-library";
+// this into a client component. Shared Sheets plumbing lives in ./sheetsCore;
+// `client` here is just an alias for that cached client so existing call sites
+// (`client().spreadsheets…`) keep working unchanged.
 import { nowBangkokISO } from "./dates";
+import { ensureTab, getSheetsClient as client, spreadsheetId } from "./sheetsCore";
 import {
   FIRST_DATA_ROW,
   LAST_COLUMN,
@@ -14,39 +14,12 @@ import {
   type Place,
 } from "./places";
 
-const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
-
 // Thrown when an operation targets an id that isn't in the sheet.
 export class PlaceNotFoundError extends Error {
   constructor(id: string) {
     super(`No place with id "${id}"`);
     this.name = "PlaceNotFoundError";
   }
-}
-
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var: ${name}`);
-  return v;
-}
-
-let cached: sheets_v4.Sheets | null = null;
-
-function client(): sheets_v4.Sheets {
-  if (cached) return cached;
-  const client_email = requireEnv("GOOGLE_SERVICE_ACCOUNT_EMAIL");
-  // Private keys are stored single-line with literal "\n"; restore real newlines.
-  const private_key = requireEnv("GOOGLE_PRIVATE_KEY").replace(/\\n/g, "\n");
-  const auth = new GoogleAuth({
-    credentials: { client_email, private_key },
-    scopes: SCOPES,
-  });
-  cached = sheets({ version: "v4", auth });
-  return cached;
-}
-
-function spreadsheetId(): string {
-  return requireEnv("GOOGLE_SHEET_ID");
 }
 
 // Row 1 — used by the /api/health connectivity probe.
@@ -142,19 +115,7 @@ function isActive(cell: unknown): boolean {
 
 // Create the `users` tab (with a header row) if it doesn't exist yet.
 async function ensureUsersTab(): Promise<void> {
-  const meta = await client().spreadsheets.get({ spreadsheetId: spreadsheetId() });
-  const exists = (meta.data.sheets ?? []).some((s) => s.properties?.title === USERS_TAB);
-  if (exists) return;
-  await client().spreadsheets.batchUpdate({
-    spreadsheetId: spreadsheetId(),
-    requestBody: { requests: [{ addSheet: { properties: { title: USERS_TAB } } }] },
-  });
-  await client().spreadsheets.values.update({
-    spreadsheetId: spreadsheetId(),
-    range: `${USERS_TAB}!A1:E1`,
-    valueInputOption: "RAW",
-    requestBody: { values: [USERS_HEADER] },
-  });
+  await ensureTab(USERS_TAB, USERS_HEADER);
 }
 
 // Resolve the 1-based row number in the users tab for an email, or 0 if absent.

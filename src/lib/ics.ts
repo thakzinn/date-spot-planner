@@ -1,6 +1,7 @@
 // Hand-rolled RFC 5545 iCalendar builder. Gives precise control over GEO, the
 // "✅ " visited prefix, escaping, CRLF, and line folding.
 import type { Place } from "./places";
+import type { Milestone } from "./plans";
 import { isTodayBangkok } from "./dates";
 
 const PRODID = "-//date-spot-planner//EN";
@@ -9,6 +10,10 @@ const EVENT_DURATION_MS = 2 * 60 * 60 * 1000; // 2h default duration
 // DISPLAY alarms fired relative to event start: 30 min before, 10 min before,
 // and at the moment the event begins. TRIGGER is RELATED=START by default.
 const ALARM_TRIGGERS = ["-PT30M", "-PT10M", "PT0S"];
+
+// Timeline milestones/checkpoints are day-scale deadlines, so remind earlier:
+// a day before, 2 hours before, and at the due moment.
+const MILESTONE_ALARM_TRIGGERS = ["-P1D", "-PT2H", "PT0S"];
 
 // Escape per RFC 5545 §3.3.11 (TEXT): backslash, semicolon, comma, newlines.
 function esc(text: string): string {
@@ -150,18 +155,98 @@ export function buildInvite(
   return lines.map(fold).join("\r\n") + "\r\n";
 }
 
+// ---- timeline (plan milestone / checkpoint) events --------------------------
+
+interface TimelineEvent {
+  uid: string; // full UID including the @suffix
+  summary: string;
+  dueDate: string; // ISO 8601
+  done: boolean;
+  stamp: string; // ISO for DTSTAMP/LAST-MODIFIED (the parent milestone's updated_at)
+  description?: string;
+}
+
+// A deadline-style VEVENT for a milestone or dated checkpoint. Done items are
+// marked CONFIRMED with a "✅ " prefix and carry no alarms.
+function buildTimelineEvent(ev: TimelineEvent): string[] | null {
+  const dtstart = toUtcStamp(ev.dueDate);
+  if (!dtstart) return null;
+  const dtend = toUtcStamp(new Date(Date.parse(ev.dueDate) + EVENT_DURATION_MS));
+  const stamp = toUtcStamp(ev.stamp) || dtstart;
+  const summary = (ev.done ? "✅ " : "") + ev.summary;
+
+  const lines = [
+    "BEGIN:VEVENT",
+    `UID:${ev.uid}`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART:${dtstart}`,
+    `DTEND:${dtend}`,
+    `LAST-MODIFIED:${stamp}`,
+    `SUMMARY:${esc(summary)}`,
+  ];
+  if (ev.description) lines.push(`DESCRIPTION:${esc(ev.description)}`);
+  lines.push(`STATUS:${ev.done ? "CONFIRMED" : "TENTATIVE"}`);
+  if (!ev.done) {
+    for (const trigger of MILESTONE_ALARM_TRIGGERS) {
+      lines.push(
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        `DESCRIPTION:${esc(summary)}`,
+        `TRIGGER:${trigger}`,
+        "END:VALARM",
+      );
+    }
+  }
+  lines.push("END:VEVENT");
+  return lines;
+}
+
+// Build the VEVENT lines for a milestone plus any of its dated checkpoints.
+// `planTitle` prefixes the summary so events read e.g. "อ่าน X · บทที่ 1".
+export function buildMilestoneEvents(m: Milestone, planTitle: string): string[] {
+  const base = planTitle ? `${planTitle} · ${m.title}` : m.title;
+  const stamp = m.updated_at || m.created_at;
+  const groups: string[][] = [];
+
+  const ms = buildTimelineEvent({
+    uid: `${m.id}@datespot-ms`,
+    summary: base,
+    dueDate: m.due_date,
+    done: m.status === "done",
+    stamp,
+    description: m.notes || undefined,
+  });
+  if (ms) groups.push(ms);
+
+  for (const c of m.checkpoints) {
+    if (!c.due_date) continue; // checkpoints without their own date ride the milestone
+    const cp = buildTimelineEvent({
+      uid: `${c.id}@datespot-cp`,
+      summary: `${base} — ${c.title}`,
+      dueDate: c.due_date,
+      done: c.done,
+      stamp,
+    });
+    if (cp) groups.push(cp);
+  }
+  return groups.flat();
+}
+
+// ---- calendar wrapper -------------------------------------------------------
+
 // Options for the published feed. When `confirmBaseUrl` is given, today's
 // not-yet-visited events get a short "confirm visit" link (<base>/visit/<id>)
 // that opens the check-in page. The page itself gates on the signed-in session
 // (creator/invitee), so no token is carried in the URL.
 export interface CalendarOptions {
   confirmBaseUrl?: string;
+  calName?: string;
 }
 
-// Build a full VCALENDAR from already-filtered places.
-export function buildCalendar(places: Place[], opts: CalendarOptions = {}): string {
+// Map already-filtered places to their VEVENT lines (no VCALENDAR wrapper).
+export function placeEventLines(places: Place[], opts: CalendarOptions = {}): string[] {
   const base = opts.confirmBaseUrl?.replace(/\/$/, "");
-  const eventLines = places
+  return places
     .map((p) => {
       const showConfirm = base && p.status !== "visited" && isTodayBangkok(p.planned_date);
       const confirmUrl = showConfirm
@@ -171,17 +256,25 @@ export function buildCalendar(places: Place[], opts: CalendarOptions = {}): stri
     })
     .filter((e): e is string[] => e !== null)
     .flat();
+}
 
+// Wrap arbitrary VEVENT lines in a published VCALENDAR (folded, CRLF-joined).
+export function wrapCalendar(eventLines: string[], opts: { calName?: string } = {}): string {
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     `PRODID:${PRODID}`,
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    "X-WR-CALNAME:Date Spots",
+    `X-WR-CALNAME:${esc(opts.calName ?? "Date Spots")}`,
     "X-WR-TIMEZONE:Asia/Bangkok",
     ...eventLines,
     "END:VCALENDAR",
   ];
   return lines.map(fold).join("\r\n") + "\r\n";
+}
+
+// Build a full VCALENDAR from already-filtered places (unchanged public API).
+export function buildCalendar(places: Place[], opts: CalendarOptions = {}): string {
+  return wrapCalendar(placeEventLines(places, opts), { calName: opts.calName });
 }

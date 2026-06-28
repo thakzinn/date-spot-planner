@@ -163,14 +163,17 @@ export default function TimelineView({
       "Updating…",
       "Updated",
     );
-    // Auto-confirm the milestone once every checkpoint is ticked off.
-    if (
-      updated &&
-      updated.status !== "done" &&
-      updated.checkpoints.length > 0 &&
-      updated.checkpoints.every((c) => c.done)
-    ) {
+    if (!updated) return;
+    const allChecked =
+      updated.checkpoints.length > 0 && updated.checkpoints.every((c) => c.done);
+    // Auto-confirm the milestone once every checkpoint is ticked off…
+    if (updated.status !== "done" && allChecked) {
       confirm(updated);
+    }
+    // …and auto-reopen it if a checkpoint is un-ticked while it's already done,
+    // so the milestone can't stay "done" with outstanding checkpoints.
+    else if (updated.status === "done" && !allChecked) {
+      reopen(updated);
     }
   }
   // Move a checkpoint's own due date out (+) or in (-) by N days. A checkpoint
@@ -293,9 +296,6 @@ export default function TimelineView({
             const early =
               m.status === "done" && m.done_at && Date.parse(m.done_at) < Date.parse(m.due_date);
             const doneCount = m.checkpoints.filter((c) => c.done).length;
-            // Confirm is only allowed once every checkpoint is done (a
-            // milestone with no checkpoints can be confirmed directly).
-            const allChecked = m.checkpoints.every((c) => c.done);
             return (
               <li key={m.id} className="relative mb-8 ms-6">
                 <span
@@ -327,8 +327,12 @@ export default function TimelineView({
                       <>
                         <button
                           onClick={() => confirm(m)}
-                          disabled={busy || !allChecked}
-                          title={allChecked ? undefined : "Finish all checkpoints first"}
+                          disabled={busy}
+                          title={
+                            doneCount < m.checkpoints.length
+                              ? "Confirms this and ticks off all remaining checkpoints"
+                              : undefined
+                          }
                           className={btnPrimary}
                         >
                           ✓ Confirm done

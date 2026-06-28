@@ -110,7 +110,12 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
   let updated: Milestone;
 
   if (action === "confirm") {
-    updated = { ...existing, status: "done", done_at: now, updated_at: now, updated_by: email };
+    // Confirming a milestone closes out every checkpoint under it too, so it
+    // can't be marked done while some of its own steps are still open.
+    const checkpoints = existing.checkpoints.map((c) =>
+      c.done ? c : { ...c, done: true, done_at: now },
+    );
+    updated = { ...existing, status: "done", done_at: now, checkpoints, updated_at: now, updated_by: email };
   } else if (action === "reopen") {
     updated = { ...existing, status: "pending", done_at: "", updated_at: now, updated_by: email };
   } else if (action === "extend") {

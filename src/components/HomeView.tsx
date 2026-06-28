@@ -142,7 +142,10 @@ export default function HomeView({ feedToken }: { feedToken: string }) {
   return (
     <div className="flex flex-1 flex-col">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-black/10 dark:border-white/10 px-4 py-3">
-        <h1 className="text-lg font-semibold">Date Spot Planner</h1>
+        <div>
+          <h1 className="text-lg font-semibold">Date Spot Planner</h1>
+          <BuildInfo />
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
@@ -225,5 +228,26 @@ export default function HomeView({ feedToken }: { feedToken: string }) {
         </section>
       </div>
     </div>
+  );
+}
+
+function BuildInfo() {
+  const sha = process.env.NEXT_PUBLIC_COMMIT_SHA;
+  const builtAt = process.env.NEXT_PUBLIC_BUILD_TIME;
+  if (!sha && !builtAt) return null;
+
+  const deployed = builtAt
+    ? new Date(builtAt).toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : null;
+
+  return (
+    <p className="text-[11px] leading-tight opacity-50">
+      {sha && <span className="font-mono">{sha}</span>}
+      {sha && deployed && " · "}
+      {deployed && <span suppressHydrationWarning>deployed {deployed}</span>}
+    </p>
   );
 }

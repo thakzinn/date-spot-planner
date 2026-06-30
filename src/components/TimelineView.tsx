@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
 import type { Checkpoint, Milestone, Plan } from "@/lib/plans";
+import type { AttachmentEntity, AttachmentPublic } from "@/lib/attachments";
 import { formatBangkok } from "@/lib/format";
 import { nowBangkokISO, bangkokDateStr, isTodayBangkok } from "@/lib/dates";
 import MilestoneForm, { type MilestonePayload } from "./MilestoneForm";
+import Attachments from "./Attachments";
 
 type MilestoneState = "done" | "overdue" | "today" | "upcoming";
 
@@ -123,6 +125,39 @@ export default function TimelineView({
     const all = [plan.created_by.trim().toLowerCase(), ...plan.invitees].filter(Boolean);
     return [...new Set(all)];
   }, [plan.created_by, plan.invitees]);
+
+  // All attachments for this plan + its milestones, fetched ONCE (not one
+  // request per panel). `null` while loading; afterward a map keyed
+  // `"<type>:<id>"`. Each <Attachments> is seeded from this and skips its own
+  // fetch, so the timeline stays well under the Sheets read quota.
+  const [attachments, setAttachments] = useState<Record<string, AttachmentPublic[]> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/attachments?plan_id=${encodeURIComponent(plan.id)}`, {
+          cache: "no-store",
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        const map: Record<string, AttachmentPublic[]> = {};
+        if (data.ok) {
+          for (const a of data.attachments as AttachmentPublic[]) {
+            (map[`${a.entity_type}:${a.entity_id}`] ??= []).push(a);
+          }
+        }
+        setAttachments(map);
+      } catch {
+        if (!cancelled) setAttachments({}); // degrade to empty seeds, still uploadable
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [plan.id]);
+
+  const attInitial = (type: AttachmentEntity, id: string): AttachmentPublic[] =>
+    attachments?.[`${type}:${id}`] ?? [];
 
   const ordered = useMemo(
     () =>
@@ -371,6 +406,15 @@ export default function TimelineView({
           </button>
           <h2 className="text-lg font-semibold">{plan.title}</h2>
           {plan.description && <p className="text-sm opacity-70">{plan.description}</p>}
+          {attachments !== null && (
+            <div className="mt-2 max-w-md">
+              <Attachments
+                entityType="plan"
+                entityId={plan.id}
+                initial={attInitial("plan", plan.id)}
+              />
+            </div>
+          )}
           {(summary.overdue > 0 || summary.today > 0) && (
             <p className="mt-1 text-sm">
               {summary.overdue > 0 && <span className="mr-2 text-red-600">⚠️ {summary.overdue} overdue</span>}
@@ -577,6 +621,16 @@ export default function TimelineView({
                         {doneCount}/{m.checkpoints.length} checkpoints done
                       </li>
                     </ul>
+                  )}
+
+                  {attachments !== null && (
+                    <div className="mt-2 border-t border-black/5 pt-2 dark:border-white/10">
+                      <Attachments
+                        entityType="milestone"
+                        entityId={m.id}
+                        initial={attInitial("milestone", m.id)}
+                      />
+                    </div>
                   )}
                 </div>
               </li>

@@ -33,13 +33,24 @@ export function spreadsheetId(): string {
   return requireEnv("GOOGLE_SHEET_ID");
 }
 
+// Tabs confirmed to exist in this (warm) process — once we've seen a tab we
+// skip the spreadsheets.get probe on every later call. Tabs are never deleted
+// at runtime, so this is safe and saves a Sheets *read* per store operation
+// (which matters against the per-minute read quota when a page fans out many
+// reads at once).
+const ensuredTabs = new Set<string>();
+
 // Create a tab (with a header row in A1) if it doesn't exist yet. Idempotent —
 // safe to call before every read/write so new deployments self-bootstrap.
 export async function ensureTab(title: string, header: string[]): Promise<void> {
+  if (ensuredTabs.has(title)) return;
   const client = getSheetsClient();
   const meta = await client.spreadsheets.get({ spreadsheetId: spreadsheetId() });
   const exists = (meta.data.sheets ?? []).some((s) => s.properties?.title === title);
-  if (exists) return;
+  if (exists) {
+    ensuredTabs.add(title);
+    return;
+  }
   await client.spreadsheets.batchUpdate({
     spreadsheetId: spreadsheetId(),
     requestBody: { requests: [{ addSheet: { properties: { title } } }] },
@@ -51,4 +62,5 @@ export async function ensureTab(title: string, header: string[]): Promise<void> 
     valueInputOption: "RAW",
     requestBody: { values: [header] },
   });
+  ensuredTabs.add(title);
 }

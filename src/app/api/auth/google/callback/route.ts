@@ -65,10 +65,12 @@ export async function GET(req: Request) {
   }
   if (result !== "active") return fail(req, "not_allowed");
 
-  // Persist the Gmail refresh token so we can later send invites as this user.
-  // Best-effort: a failure here must not block sign-in. Empty on repeat logins
-  // (Google only reissues the token with prompt=consent) — setUserGmailToken
-  // skips empties so a prior token isn't clobbered.
+  // Persist the Google refresh token so we can later act as this user — send
+  // invites (gmail.send) and upload/stream file attachments (drive.file), both
+  // scopes ride on this one token. Best-effort: a failure here must not block
+  // sign-in. Empty on repeat logins (Google only reissues the token with
+  // prompt=consent) — setUserGmailToken skips empties so a prior token isn't
+  // clobbered.
   if (identity.refreshToken) {
     try {
       await setUserGmailToken(identity.email, identity.refreshToken);

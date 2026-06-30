@@ -77,14 +77,29 @@ This lets people log in with their Google account instead of a shared passphrase
    configure the **OAuth consent screen**: User type **External**, fill app name + your email,
    and under **Audience** add your testers' emails (or keep it in "Testing" — that's fine for a
    private app). You do **not** need Google verification for a handful of users.
-   - Under **Data access → Add or remove scopes**, add the **`.../auth/gmail.send`** scope
-     (Gmail API, "Send email on your behalf"). This is what lets the app email invites as the user.
-     It is a **sensitive/restricted scope**: while the app stays in **Testing**, your listed test
-     users can grant it but will see an **"unverified app"** warning screen — click **Continue**.
-     (Full Google verification is only needed if you ever Publish the app, which you should not.)
-   - **Existing users must sign in again once** after this change to grant Gmail access — the app
-     re-prompts for consent and stores their send token. Until they do, their spots still save but
-     invites report "couldn't be sent — log out and sign in again."
+   - Add the **`.../auth/gmail.send`** scope (Gmail API, "Send email on your behalf"). This is what
+     lets the app email invites as the user. It is a **sensitive scope**: while the app stays in
+     **Testing**, your listed test users can grant it but will see an **"unverified app"** warning
+     screen — click **Continue**. (Full Google verification is only needed if you ever Publish the
+     app, which you should not.)
+   - Also add the **`.../auth/drive.file`** scope (Google Drive API — enable the **Drive API**
+     under **APIs & Services → Library** first). This powers **file attachments** on spots, plans,
+     and milestones. `drive.file` is **per-file**: the app can only ever see or manage files it
+     created here — never the user's other Drive files. Google classes it as a
+     **non-sensitive** scope, so it appears under "Your non-sensitive scopes" and adds **no** extra
+     consent/verification friction — the "unverified app" screen above is solely from `gmail.send`.
+     Uploaded files land in a **"Date Spot Planner"** folder in the uploader's own Drive and are kept
+     **private** (never shared); the app streams them back to members through its own authenticated
+     proxy. (We upload with the user's own token because a service account has no Drive storage on a
+     personal Gmail account.)
+   - **After adding scopes, click `Save` on the Data access page** — the change stays pending (a
+     `Save` / `Discard changes` bar shows at the bottom) until you do, and an unsaved `drive.file`
+     scope won't be granted.
+   - **Existing users must sign in again once** after these changes to grant Gmail **and** Drive
+     access — the app re-prompts for consent and stores the (single) refresh token carrying both
+     scopes. Until they do, their spots still save but invites report "couldn't be sent" and
+     uploads report "ยังไม่ได้ให้สิทธิ์ Google Drive — ออกจากระบบแล้วเข้าใหม่." Uploads are capped at
+     **4 MB** each (kept under Vercel's serverless request-body limit).
 2. Go to <https://console.cloud.google.com/apis/credentials> → **Create Credentials** →
    **OAuth client ID** → Application type **Web application**.
 3. Under **Authorized redirect URIs**, add **both**:

@@ -8,7 +8,12 @@ import { OAuth2Client } from "google-auth-library";
 // It is a "sensitive" scope: testers see an "unverified app" screen while the
 // OAuth app stays in Testing — fine for a private app (see SETUP.md Part C2).
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
-const SCOPES = ["openid", "email", "profile", GMAIL_SEND_SCOPE];
+// Per-file Drive access: the app can only see/manage files IT created (uploaded
+// attachments) — never the user's other Drive files. Granted into the SAME
+// refresh token as gmail.send, so existing users must sign in again once for
+// attachments to upload (the token reissues on prompt=consent — see callback).
+export const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const SCOPES = ["openid", "email", "profile", GMAIL_SEND_SCOPE, DRIVE_FILE_SCOPE];
 // Where Google sends the user back. Must EXACTLY match an Authorized redirect
 // URI in the OAuth client (scheme, host, path, no trailing slash).
 export const CALLBACK_PATH = "/api/auth/google/callback";

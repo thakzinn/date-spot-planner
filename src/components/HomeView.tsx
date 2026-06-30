@@ -1,28 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
+import { showLoading, showSuccess, showError } from "@/lib/swal";
 import type { Place } from "@/lib/places";
+import type { Milestone, Plan } from "@/lib/plans";
 import { formatBangkok } from "@/lib/format";
-import { bangkokDateStr } from "@/lib/dates";
-import SpotList from "./SpotList";
-import SpotForm, { type SpotPayload } from "./SpotForm";
-import Segmented from "./Segmented";
+import { bangkokDateStr, nowBangkokISO } from "@/lib/dates";
+import BuildInfo from "./BuildInfo";
 
-type SpotScope = "me" | "invited" | "all";
-type SpotPeriod = "current" | "past" | "all";
-
-// Leaflet needs the browser — load the map only on the client.
-const MapView = dynamic(() => import("./MapView"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-full items-center justify-center text-sm opacity-60">Loading map…</div>
-  ),
-});
-
+// The home page is a read-only dashboard: a rollup of where our date spots stand
+// by status and how many plans are still open, each anchored by the single
+// nearest thing coming up. Managing spots lives on /spots, plans on /plans.
 export default function HomeView({
   feedToken,
   userEmail,
@@ -32,36 +22,35 @@ export default function HomeView({
 }) {
   const router = useRouter();
   const [places, setPlaces] = useState<Place[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState<Place | null>(null);
-  const [busy, setBusy] = useState(false);
-  // Who owns the spot (Me / Invited / All) and where it sits in time
-  // (Current = planned & not past due, Past = visited/cancelled or date gone by).
-  const [scope, setScope] = useState<SpotScope>("all");
-  const [period, setPeriod] = useState<SpotPeriod>("current");
   const [copied, setCopied] = useState(false);
-  const [preview, setPreview] = useState<[number, number] | null>(null);
   const [feedUrl, setFeedUrl] = useState("");
-
-  const onPreview = useCallback((coords: [number, number] | null) => {
-    setPreview(coords);
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/places", { cache: "no-store" });
-      if (res.status === 401) {
+      const [placesRes, plansRes] = await Promise.all([
+        fetch("/api/places", { cache: "no-store" }),
+        fetch("/api/plans", { cache: "no-store" }),
+      ]);
+      if (placesRes.status === 401 || plansRes.status === 401) {
         router.replace("/login");
         return;
       }
-      const data = await res.json();
-      if (data.ok) setPlaces(data.places as Place[]);
-      else setError(data.error ?? "Failed to load");
+      const placesData = await placesRes.json();
+      if (placesData.ok) setPlaces(placesData.places as Place[]);
+      else setError(placesData.error ?? "Failed to load");
+
+      // Plan stats are best-effort — a plans failure must not blank the spots half.
+      const plansData = await plansRes.json().catch(() => null);
+      if (plansData?.ok) {
+        setPlans(plansData.plans as Plan[]);
+        setMilestones((plansData.milestones ?? []) as Milestone[]);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -73,130 +62,64 @@ export default function HomeView({
     load();
   }, [load]);
 
-  // A spot is "ours" when we created it; otherwise we only see it via an invite.
-  const me = userEmail.trim().toLowerCase();
-
-  const displayed = useMemo(() => {
+  // Rollup over everything we can see. "Upcoming" spots/pending milestones are
+  // today-or-future; ones whose date already slipped are counted as overdue.
+  const stats = useMemo(() => {
     const today = bangkokDateStr();
-    // Past = already visited/cancelled, or its planned date has gone by.
-    const isPast = (p: Place) => {
-      if (p.status !== "planned") return true;
-      const d = Date.parse(p.planned_date);
-      return !Number.isNaN(d) && bangkokDateStr(new Date(d)) < today;
+    const nowMs = Date.parse(nowBangkokISO());
+
+    let upcoming = 0;
+    let dueToday = 0;
+    let overdueSpots = 0;
+    let visited = 0;
+    let nextSpot: Place | null = null;
+    for (const p of places) {
+      if (p.status === "visited") {
+        visited += 1;
+        continue;
+      }
+      if (p.status === "cancelled") continue;
+      const t = Date.parse(p.planned_date);
+      const day = Number.isNaN(t) ? "" : bangkokDateStr(new Date(t));
+      if (day && day < today) {
+        overdueSpots += 1;
+        continue;
+      }
+      upcoming += 1;
+      if (day === today) dueToday += 1;
+      if (!Number.isNaN(t) && t >= nowMs && (!nextSpot || Date.parse(nextSpot.planned_date) > t)) {
+        nextSpot = p;
+      }
+    }
+
+    const planTitle = new Map(plans.map((p) => [p.id, p.title]));
+    const activePlans = plans.filter((p) => p.status === "active").length;
+    let pendingMs = 0;
+    let overdueMs = 0;
+    let nextMs: Milestone | null = null;
+    for (const m of milestones) {
+      if (m.status === "done") continue;
+      pendingMs += 1;
+      const t = Date.parse(m.due_date);
+      if (!Number.isNaN(t) && bangkokDateStr(new Date(t)) < today) overdueMs += 1;
+      if (!Number.isNaN(t) && t >= nowMs && (!nextMs || Date.parse(nextMs.due_date) > t)) {
+        nextMs = m;
+      }
+    }
+
+    return {
+      upcoming,
+      dueToday,
+      overdueSpots,
+      visited,
+      nextSpot,
+      activePlans,
+      pendingMs,
+      overdueMs,
+      nextMs,
+      nextMsPlan: nextMs ? planTitle.get(nextMs.plan_id) ?? "" : "",
     };
-    const list = places.filter((p) => {
-      if (scope === "me" && p.created_by.trim().toLowerCase() !== me) return false;
-      if (scope === "invited" && p.created_by.trim().toLowerCase() === me) return false;
-      if (period === "current" && isPast(p)) return false;
-      if (period === "past" && !isPast(p)) return false;
-      return true;
-    });
-    return [...list].sort((a, b) => Date.parse(a.planned_date) - Date.parse(b.planned_date));
-  }, [places, scope, period, me]);
-
-  function upsertLocal(updated: Place) {
-    setPlaces((prev) => {
-      const i = prev.findIndex((p) => p.id === updated.id);
-      if (i === -1) return [...prev, updated];
-      const next = [...prev];
-      next[i] = updated;
-      return next;
-    });
-  }
-
-  async function onSave(payload: SpotPayload, id: string | null) {
-    setBusy(true);
-    setError("");
-    setNotice("");
-    showLoading(id ? "Saving changes…" : "Adding spot…");
-    try {
-      const res = await fetch(id ? `/api/places/${id}` : "/api/places", {
-        method: id ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setError(data.error ?? "Save failed");
-        showError(data.error ?? "Save failed");
-        return;
-      }
-      upsertLocal(data.place as Place);
-      setNotice(describeInvite(data.invite));
-      setShowForm(false);
-      setEditing(null);
-      showSuccess(id ? "Changes saved" : "Spot added");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Save failed";
-      setError(msg);
-      showError(msg);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function setVisited(id: string, action: "visit" | "unvisit") {
-    setError("");
-    showLoading("Updating…");
-    try {
-      const res = await fetch(`/api/places/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setError(data.error ?? "Update failed");
-        showError(data.error ?? "Update failed");
-        return;
-      }
-      upsertLocal(data.place as Place);
-      showSuccess(action === "visit" ? "Marked visited" : "Marked planned");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Update failed";
-      setError(msg);
-      showError(msg);
-    }
-  }
-
-  function onView(p: Place) {
-    Swal.fire({
-      title: esc(p.place_name),
-      html: detailsHtml(p),
-      confirmButtonText: "Close",
-      confirmButtonColor: "#db2777",
-    });
-  }
-
-  async function onDelete(id: string) {
-    const confirmed = await Swal.fire({
-      title: "Delete this spot?",
-      text: "It will be hidden from your list and calendar.",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonText: "Delete",
-      cancelButtonText: "Cancel",
-      confirmButtonColor: "#dc2626",
-    });
-    if (!confirmed.isConfirmed) return;
-    setError("");
-    showLoading("Deleting…");
-    try {
-      const res = await fetch(`/api/places/${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setError(data.error ?? "Delete failed");
-        showError(data.error ?? "Delete failed");
-        return;
-      }
-      setPlaces((prev) => prev.filter((p) => p.id !== id));
-      showSuccess("Spot deleted");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Delete failed";
-      setError(msg);
-      showError(msg);
-    }
-  }
+  }, [places, plans, milestones]);
 
   async function logout() {
     showLoading("Logging out…");
@@ -231,24 +154,21 @@ export default function HomeView({
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-black/10 dark:border-white/10 px-4 py-3">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-black/10 px-4 py-3 dark:border-white/10">
         <div>
           <h1 className="text-lg font-semibold">Date Spot Planner</h1>
           <BuildInfo />
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              setEditing(null);
-              setShowForm(true);
-            }}
+          <Link
+            href="/spots"
             className="rounded-lg bg-pink-600 px-3 py-1.5 text-sm font-medium text-white"
           >
-            + Add spot
-          </button>
+            Spots &amp; Map
+          </Link>
           <Link
             href="/plans"
-            className="rounded-lg border border-black/15 dark:border-white/25 px-3 py-1.5 text-sm"
+            className="rounded-lg border border-black/15 px-3 py-1.5 text-sm dark:border-white/25"
           >
             Plans &amp; Timeline
           </Link>
@@ -256,7 +176,7 @@ export default function HomeView({
             <button
               onClick={copyFeed}
               title={feedUrl}
-              className="rounded-lg border border-black/15 dark:border-white/25 px-3 py-1.5 text-sm"
+              className="rounded-lg border border-black/15 px-3 py-1.5 text-sm dark:border-white/25"
             >
               {copied ? "Copied!" : "Copy calendar URL"}
             </button>
@@ -272,169 +192,183 @@ export default function HomeView({
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_1fr] lg:grid-cols-2 lg:grid-rows-1">
-        <section className="order-2 min-h-0 overflow-y-auto p-4 lg:order-1">
-          <div className="mb-2 space-y-2">
-            <h2 className="font-medium">Spots</h2>
-            <div className="flex flex-wrap items-center gap-2">
-              <Segmented
-                value={scope}
-                onChange={setScope}
-                options={[
-                  { value: "me", label: "Me" },
-                  { value: "invited", label: "Invited" },
-                  { value: "all", label: "All" },
-                ]}
+      <main className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="mx-auto max-w-4xl space-y-6">
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          {/* Date spots */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="font-medium">Date spots</h2>
+              <Link href="/spots" className="text-sm underline opacity-70">
+                จัดการ / ดูแผนที่ ›
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <StatCard
+                label="ที่ต้องไป"
+                loading={loading}
+                value={stats.upcoming}
+                accent="text-pink-600 dark:text-pink-400"
+                sub={
+                  [
+                    stats.dueToday > 0 ? `วันนี้ ${stats.dueToday}` : "",
+                    stats.overdueSpots > 0 ? `เลยกำหนด ${stats.overdueSpots}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "planned"
+                }
+                subAlert={stats.overdueSpots > 0}
               />
-              <span className="opacity-30">·</span>
-              <Segmented
-                value={period}
-                onChange={setPeriod}
-                options={[
-                  { value: "current", label: "Current" },
-                  { value: "past", label: "Past" },
-                  { value: "all", label: "All" },
-                ]}
+              <StatCard label="ไปแล้ว" loading={loading} value={stats.visited} sub="visited" />
+              <NextCard
+                title="ที่ใกล้ถึง"
+                href="/spots"
+                name={stats.nextSpot?.place_name ?? null}
+                meta={stats.nextSpot ? formatBangkok(stats.nextSpot.planned_date) : ""}
+                due={stats.nextSpot?.planned_date ?? ""}
+                empty={loading ? "กำลังโหลดข้อมูล…" : "ไม่มีนัดที่ค้าง 🎉"}
               />
             </div>
-          </div>
+          </section>
 
-          {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
-          {notice && (
-            <p className="mb-2 flex items-start justify-between gap-2 rounded-lg bg-pink-50 px-3 py-2 text-sm text-pink-800 dark:bg-pink-900/30 dark:text-pink-200">
-              <span>{notice}</span>
-              <button
-                onClick={() => setNotice("")}
-                aria-label="Dismiss"
-                className="shrink-0 opacity-60 hover:opacity-100"
-              >
-                ×
-              </button>
-            </p>
-          )}
-
-          {showForm && (
-            <div className="mb-4 rounded-xl border border-black/10 dark:border-white/15 p-4">
-              <SpotForm
-                // Remount when switching spots (or to "add") so the form's
-                // initial-seeded state can't linger from a previous edit.
-                key={editing?.id ?? "new"}
-                initial={editing}
-                busy={busy}
-                onSave={onSave}
-                onPreview={onPreview}
-                onCancel={() => {
-                  setShowForm(false);
-                  setEditing(null);
-                }}
+          {/* Plans */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="font-medium">Plans</h2>
+              <Link href="/plans" className="text-sm underline opacity-70">
+                ดูไทม์ไลน์ ›
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <StatCard
+                label="แผนที่ต้องทำ"
+                loading={loading}
+                value={stats.activePlans}
+                accent="text-pink-600 dark:text-pink-400"
+                sub={
+                  [
+                    stats.pendingMs > 0 ? `${stats.pendingMs} งานค้าง` : "",
+                    stats.overdueMs > 0 ? `เลยกำหนด ${stats.overdueMs}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "active"
+                }
+                subAlert={stats.overdueMs > 0}
+              />
+              <NextCard
+                title="งานที่ใกล้ถึง"
+                href="/plans"
+                name={stats.nextMs?.title ?? null}
+                meta={stats.nextMsPlan ? `📋 ${stats.nextMsPlan}` : ""}
+                due={stats.nextMs?.due_date ?? ""}
+                empty={loading ? "กำลังโหลดข้อมูล…" : "ไม่มีงานค้าง 🎉"}
+                className="col-span-2 sm:col-span-2"
               />
             </div>
-          )}
-
-          {loading ? (
-            <p className="py-8 text-center text-sm opacity-60">Loading…</p>
-          ) : (
-            <SpotList
-              places={displayed}
-              onConfirm={(id) => setVisited(id, "visit")}
-              onRevert={(id) => setVisited(id, "unvisit")}
-              onView={onView}
-              onEdit={(p) => {
-                setEditing(p);
-                setShowForm(true);
-              }}
-              onDelete={onDelete}
-            />
-          )}
-        </section>
-
-        <section className="order-1 min-h-0 h-[40vh] lg:order-2 lg:h-auto">
-          <MapView
-            places={displayed}
-            preview={showForm ? preview : null}
-            onConfirm={(id) => setVisited(id, "visit")}
-            onRevert={(id) => setVisited(id, "unvisit")}
-          />
-        </section>
-      </div>
+          </section>
+        </div>
+      </main>
     </div>
   );
 }
 
-// Shape returned by the places API under `invite` (mirrors lib/gmail
-// SendInvitesResult); null when there was nobody to notify.
-interface InviteResult {
-  sent: string[];
-  failed: string[];
-  error?: string;
-}
-
-// Turn an invite outcome into a one-line user notice ("" = show nothing).
-function describeInvite(invite: InviteResult | null | undefined): string {
-  if (!invite) return "";
-  const sent = invite.sent?.length ?? 0;
-  if (invite.error === "no_gmail_grant") {
-    return "Spot saved, but invites couldn't be sent — log out and sign in again to grant Gmail access, then re-add the invitee.";
-  }
-  if (invite.failed?.length && sent === 0) {
-    return "Spot saved, but the invite email failed to send. Try editing the spot to retry.";
-  }
-  if (sent > 0) {
-    const partial = invite.failed?.length ? ` (${invite.failed.length} failed)` : "";
-    return `Invite emailed to ${sent} ${sent === 1 ? "person" : "people"}${partial}.`;
-  }
-  return "";
-}
-
-// Escape user-supplied text before dropping it into Swal's `html`.
-function esc(s: string): string {
-  return s.replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
+function StatCard({
+  label,
+  value,
+  accent,
+  sub,
+  subAlert,
+  loading,
+}: {
+  label: string;
+  value: number;
+  accent?: string;
+  sub?: string;
+  subAlert?: boolean;
+  loading?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-black/10 px-4 py-3 dark:border-white/15">
+      <div className="text-xs opacity-60">{label}</div>
+      {loading ? (
+        <div className="mt-1.5 h-7 w-10 animate-pulse rounded bg-black/10 dark:bg-white/15" />
+      ) : (
+        <div className={`text-3xl font-semibold tabular-nums ${accent ?? ""}`}>{value}</div>
+      )}
+      {sub && (
+        <div className={`text-[11px] ${subAlert ? "text-red-600" : "opacity-60"}`}>
+          {loading ? "กำลังโหลดข้อมูล…" : sub}
+        </div>
+      )}
+    </div>
   );
 }
 
-// Build the read-only details body for the View modal.
-function detailsHtml(p: Place): string {
-  const rows: Array<[string, string]> = [
-    ["Status", p.status],
-    ["When", formatBangkok(p.planned_date)],
-  ];
-  if (p.category) rows.push(["Category", p.category]);
-  if (p.invitees.length > 0) rows.push(["Invitees", p.invitees.join(", ")]);
-  if (p.notes) rows.push(["Notes", p.notes]);
-  if (p.status === "visited" && p.visited_at) rows.push(["Visited", formatBangkok(p.visited_at)]);
-
-  const list = rows
-    .map(
-      ([label, value]) =>
-        `<div style="margin-bottom:6px"><span style="opacity:.6">${esc(label)}:</span> ${esc(value)}</div>`,
-    )
-    .join("");
-
-  const maps = p.maps_url
-    ? `<div style="margin-top:10px"><a href="${esc(p.maps_url)}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline">Open in Maps</a></div>`
-    : "";
-
-  return `<div style="text-align:left;font-size:14px">${list}${maps}</div>`;
+// The "next up" highlight — always a link to the page where that item lives.
+function NextCard({
+  title,
+  href,
+  name,
+  meta,
+  due,
+  empty,
+  className,
+}: {
+  title: string;
+  href: string;
+  name: string | null;
+  meta: string;
+  due: string;
+  empty: string;
+  className?: string;
+}) {
+  const base =
+    "rounded-xl border px-4 py-3 " +
+    (name
+      ? "border-pink-300/70 bg-pink-50/60 dark:border-pink-400/30 dark:bg-pink-900/20"
+      : "border-black/10 dark:border-white/15");
+  return (
+    <Link href={href} className={`block ${base} ${className ?? ""}`}>
+      <div className="text-xs opacity-60">{title}</div>
+      {name ? (
+        <>
+          <div className="truncate text-sm font-medium">{name}</div>
+          {meta && <div className="truncate text-[11px] opacity-60">{meta}</div>}
+          {due && <Countdown due={due} />}
+        </>
+      ) : (
+        <div className="mt-1 text-sm opacity-60">{empty}</div>
+      )}
+    </Link>
+  );
 }
 
-function BuildInfo() {
-  const sha = process.env.NEXT_PUBLIC_COMMIT_SHA;
-  const builtAt = process.env.NEXT_PUBLIC_BUILD_TIME;
-  if (!sha && !builtAt) return null;
+// Live "อีก N วัน HH:MM:SS" countdown that flips red once the date passes.
+function Countdown({ due }: { due: string }) {
+  const target = Date.parse(due);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (Number.isNaN(target)) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [target]);
+  if (Number.isNaN(target)) return null;
 
-  const deployed = builtAt
-    ? new Date(builtAt).toLocaleString(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      })
-    : null;
+  const diff = target - now;
+  const overdue = diff < 0;
+  const abs = Math.abs(diff);
+  const days = Math.floor(abs / 86_400_000);
+  const h = Math.floor((abs % 86_400_000) / 3_600_000);
+  const m = Math.floor((abs % 3_600_000) / 60_000);
+  const s = Math.floor((abs % 60_000) / 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const clock = `${pad(h)}:${pad(m)}:${pad(s)}`;
+  const dayPart = days > 0 ? `${days} วัน ` : "";
 
   return (
-    <p className="text-[11px] leading-tight opacity-50">
-      {sha && <span className="font-mono">{sha}</span>}
-      {sha && deployed && " · "}
-      {deployed && <span suppressHydrationWarning>deployed {deployed}</span>}
-    </p>
+    <span className={`text-xs tabular-nums ${overdue ? "text-red-600" : "text-pink-600 dark:text-pink-400"}`}>
+      {overdue ? `เลยมา ${dayPart}${clock}` : `อีก ${dayPart}${clock}`}
+    </span>
   );
 }

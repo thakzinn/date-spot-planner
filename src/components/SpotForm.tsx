@@ -5,6 +5,7 @@ import { isEmail, isGmail, type Place, type PlaceStatus } from "@/lib/places";
 import { isoToLocalInput, localInputToISO } from "@/lib/format";
 import { showLoading, showSuccess, showError } from "@/lib/swal";
 import DateTimePicker from "./DateTimePicker";
+import Attachments from "./Attachments";
 
 export interface SpotPayload {
   place_name: string;
@@ -374,6 +375,13 @@ export default function SpotForm({
         <span className="opacity-70">Notes</span>
         <textarea className={inputCls} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </label>
+
+      {/* Attachments only make sense once the spot exists (it needs an id). */}
+      {initial?.id && (
+        <div className="rounded-lg border border-black/10 p-3 dark:border-white/15">
+          <Attachments entityType="spot" entityId={initial.id} />
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 

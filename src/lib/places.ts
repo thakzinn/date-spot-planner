@@ -65,15 +65,21 @@ export function isEmail(s: string): boolean {
   return EMAIL_RE.test(s);
 }
 
+// The app authenticates exclusively via Gmail SSO, so every invitee/assignee must
+// be a @gmail.com address — anything else could never sign in to see the invite.
+export function isGmail(s: string): boolean {
+  return isEmail(s) && s.trim().toLowerCase().endsWith("@gmail.com");
+}
+
 // Normalize a list of invitee emails: split a raw cell/array on commas, semicolons
-// and whitespace, lowercase, drop invalid + duplicates, preserving first-seen order.
+// and whitespace, lowercase, drop non-gmail + duplicates, preserving first-seen order.
 export function normalizeInvitees(input: unknown): string[] {
   const raw = Array.isArray(input) ? input.map((v) => str(v)) : str(input).split(/[,;\s]+/);
   const out: string[] = [];
   const seen = new Set<string>();
   for (const item of raw) {
     const email = item.trim().toLowerCase();
-    if (!email || !isEmail(email) || seen.has(email)) continue;
+    if (!email || !isGmail(email) || seen.has(email)) continue;
     seen.add(email);
     out.push(email);
   }

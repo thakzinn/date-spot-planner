@@ -3,7 +3,7 @@
 // each carrying an inline JSON checklist of checkpoints). Mirrors the shape and
 // conventions of ./places (trailing audit columns, soft-delete via deleted_at,
 // ISO-8601 +07:00 timestamps, lowercased invitee emails).
-import { isEmail, normalizeInvitees } from "./places";
+import { isEmail, isGmail, normalizeInvitees } from "./places";
 
 // ---- plans -----------------------------------------------------------------
 // Columns A-K, in this exact order:
@@ -321,4 +321,4 @@ export function parseMilestoneInput(
 }
 
 // re-export so callers can validate/normalize emails without importing places too
-export { isEmail, normalizeInvitees };
+export { isEmail, isGmail, normalizeInvitees };

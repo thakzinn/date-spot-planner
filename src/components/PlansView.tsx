@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
-import type { Milestone, Plan } from "@/lib/plans";
+import { isGmail, type Milestone, type Plan } from "@/lib/plans";
 import { bangkokDateStr, isTodayBangkok } from "@/lib/dates";
 import { formatBangkok, isoToLocalInput, localInputToISO } from "@/lib/format";
 import DateTimePicker from "./DateTimePicker";
@@ -434,8 +434,11 @@ function PlanForm({
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return setError("Title is required.");
-    // The server normalizes/validates emails; split loosely here.
+    // The server normalizes/validates emails; split loosely here, but reject
+    // non-gmail addresses up front so they aren't silently dropped on save.
     const invitees = inviteesRaw.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+    const badEmail = invitees.find((e) => !isGmail(e));
+    if (badEmail) return setError(`"${badEmail}" must be a @gmail.com address — sign-in uses Google.`);
     onSave(
       {
         title: title.trim(),
@@ -471,7 +474,7 @@ function PlanForm({
           className={inputCls}
           value={inviteesRaw}
           onChange={(e) => setInviteesRaw(e.target.value)}
-          placeholder="name@example.com, friend@example.com"
+          placeholder="name@gmail.com, friend@gmail.com"
         />
       </label>
       {error && <p className="text-sm text-red-600">{error}</p>}

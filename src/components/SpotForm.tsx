@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { isEmail, type Place, type PlaceStatus } from "@/lib/places";
+import { isEmail, isGmail, type Place, type PlaceStatus } from "@/lib/places";
 import { isoToLocalInput, localInputToISO } from "@/lib/format";
 import { showLoading, showSuccess, showError } from "@/lib/swal";
 import DateTimePicker from "./DateTimePicker";
@@ -114,6 +114,10 @@ export default function SpotForm({
       setInviteeError(`"${email}" is not a valid email.`);
       return invitees;
     }
+    if (!isGmail(email)) {
+      setInviteeError(`"${email}" must be a @gmail.com address — sign-in uses Google.`);
+      return invitees;
+    }
     setInviteeError("");
     if (invitees.includes(email)) {
       setInviteeDraft("");
@@ -162,6 +166,10 @@ export default function SpotForm({
     }
     if (!isEmail(email)) {
       setInviteeError(`"${email}" is not a valid email.`);
+      return;
+    }
+    if (!isGmail(email)) {
+      setInviteeError(`"${email}" must be a @gmail.com address — sign-in uses Google.`);
       return;
     }
     if (invitees.includes(email)) {
@@ -313,7 +321,7 @@ export default function SpotForm({
             }}
             onKeyDown={onInviteeKeyDown}
             onBlur={() => inviteeDraft.trim() && addInvitee(inviteeDraft)}
-            placeholder={invitees.length ? "Add another…" : "name@example.com"}
+            placeholder={invitees.length ? "Add another…" : "name@gmail.com"}
             className="min-w-[8rem] flex-1 bg-transparent px-1 py-0.5 outline-none"
           />
         </div>

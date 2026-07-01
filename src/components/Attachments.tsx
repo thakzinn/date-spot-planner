@@ -16,6 +16,14 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Shorten a long filename in the MIDDLE, keeping the start and the tail (so the
+// extension stays visible): "ข้อสอบ-…-580-ข้อ.pdf". Hover still shows the full
+// name via title. Prevents very long names from widening the whole row/page.
+function shortName(name: string, head = 16, tail = 12): string {
+  if (name.length <= head + tail + 1) return name;
+  return `${name.slice(0, head)}…${name.slice(-tail)}`;
+}
+
 // Friendly text for the API's machine-readable error codes.
 function explain(error: string): string {
   if (error === "no_drive_grant")
@@ -202,7 +210,7 @@ export default function Attachments({
                     className="block truncate hover:underline"
                     title={a.name}
                   >
-                    {a.name}
+                    {shortName(a.name)}
                   </a>
                   <span className="text-xs opacity-50">
                     {formatSize(a.size)} · @{a.uploaded_by.split("@")[0]}

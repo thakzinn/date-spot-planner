@@ -9,8 +9,6 @@
 import { randomUUID } from "node:crypto";
 import { refreshTokenClient } from "./google-oauth";
 
-// The tidy folder we drop every attachment into, inside the uploader's Drive.
-const FOLDER_NAME = "Date Spot Planner";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
 const DRIVE_API = "https://www.googleapis.com/drive/v3/files";
@@ -81,17 +79,24 @@ async function driveError(res: Response, what: string): Promise<never> {
   throw new Error(`Drive ${what} failed (${res.status}): ${text.slice(0, 500)}`);
 }
 
-// Find-or-create the app's folder in the uploader's Drive, cached per token for
-// the life of the (warm) lambda to avoid a lookup on every upload. Under
-// drive.file the list query only ever returns app-created files, so this finds
-// the folder we made previously and nothing else.
+// Find-or-create one folder by name under a given parent, cached per
+// (token, parent, name) for the life of the (warm) lambda. Under drive.file the
+// list query only ever returns app-created files, so this finds a folder we
+// made previously and nothing else.
 const folderCache = new Map<string, string>();
-async function ensureFolder(refreshToken: string, token: string): Promise<string> {
-  const cached = folderCache.get(refreshToken);
+async function findOrCreateFolder(
+  refreshToken: string,
+  token: string,
+  name: string,
+  parentId: string,
+): Promise<string> {
+  const cacheKey = `${refreshToken}|${parentId}|${name}`;
+  const cached = folderCache.get(cacheKey);
   if (cached) return cached;
 
+  const safe = name.replace(/'/g, "\\'");
   const q = encodeURIComponent(
-    `name='${FOLDER_NAME}' and mimeType='${FOLDER_MIME}' and trashed=false`,
+    `name='${safe}' and mimeType='${FOLDER_MIME}' and trashed=false and '${parentId}' in parents`,
   );
   const findRes = await fetch(`${DRIVE_API}?q=${q}&fields=files(id)&spaces=drive&pageSize=1`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -100,30 +105,45 @@ async function ensureFolder(refreshToken: string, token: string): Promise<string
   const found = (await findRes.json()) as { files?: Array<{ id: string }> };
   const existing = found.files?.[0]?.id;
   if (existing) {
-    folderCache.set(refreshToken, existing);
+    folderCache.set(cacheKey, existing);
     return existing;
   }
 
   const createRes = await fetch(`${DRIVE_API}?fields=id`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ name: FOLDER_NAME, mimeType: FOLDER_MIME }),
+    body: JSON.stringify({ name, mimeType: FOLDER_MIME, parents: [parentId] }),
   });
   if (!createRes.ok) await driveError(createRes, "folder create");
   const created = (await createRes.json()) as { id: string };
-  folderCache.set(refreshToken, created.id);
+  folderCache.set(cacheKey, created.id);
   return created.id;
 }
 
-// Upload `bytes` as a new file in the uploader's Drive (inside the app folder)
-// via a single multipart/related request. Returns the created file's metadata.
+// Walk a nested folder path (e.g. ["Uploads","2026","07","03"]) under My Drive
+// root, creating any missing level, and return the leaf folder's id.
+async function ensureFolderPath(
+  refreshToken: string,
+  token: string,
+  segments: string[],
+): Promise<string> {
+  let parentId = "root"; // 'root' aliases the account's My Drive root
+  for (const seg of segments) {
+    parentId = await findOrCreateFolder(refreshToken, token, seg, parentId);
+  }
+  return parentId;
+}
+
+// Upload `bytes` as a new file into the folder path `file.folderPath` (created
+// on demand) in the Drive account behind `refreshToken`, via a single
+// multipart/related request. Returns the created file's metadata.
 export async function uploadToDrive(
   refreshToken: string,
-  file: { name: string; mimeType: string; bytes: Buffer },
+  file: { name: string; mimeType: string; bytes: Buffer; folderPath: string[] },
 ): Promise<DriveFile> {
   if (!refreshToken) throw new DriveScopeError();
   const token = await accessTokenFor(refreshToken);
-  const folderId = await ensureFolder(refreshToken, token);
+  const folderId = await ensureFolderPath(refreshToken, token, file.folderPath);
 
   const boundary = `dsp_${randomUUID().replace(/-/g, "")}`;
   const metadata = {

@@ -31,6 +31,12 @@ function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
 }
 
+// A filename-safe uploader tag from an email local part: "thakzinn@…" -> "Thakzinn".
+function uploaderSlug(email: string): string {
+  const local = email.split("@")[0].replace(/[^a-zA-Z0-9]+/g, "");
+  return local ? local.charAt(0).toUpperCase() + local.slice(1) : "User";
+}
+
 export async function GET(req: Request) {
   const session = await getSession();
   if (!session) return unauthorized();
@@ -111,20 +117,29 @@ export async function POST(req: Request) {
     const token = await getUserGmailToken(ownerEmail);
     if (!token) return bad("owner_no_drive_grant", 403);
 
+    // Organise files in Drive as Uploads/YYYY/MM/DD/HHMMSS_Uploader_Name.ext,
+    // dated in Bangkok time. The display name in the app stays the ORIGINAL
+    // filename; only the file's Drive name gets the structured prefix.
+    const now = nowBangkokISO(); // e.g. 2026-07-03T14:35:12+07:00
+    const [yyyy, mm, dd] = [now.slice(0, 4), now.slice(5, 7), now.slice(8, 10)];
+    const hhmmss = now.slice(11, 13) + now.slice(14, 16) + now.slice(17, 19);
+    const originalName = file.name || "file";
+    const driveName = `${hhmmss}_${uploaderSlug(email)}_${originalName}`;
+
     const bytes = Buffer.from(await file.arrayBuffer());
     const drive = await uploadToDrive(token, {
-      name: file.name || "file",
+      name: driveName,
       mimeType: file.type || "application/octet-stream",
       bytes,
+      folderPath: ["Uploads", yyyy, mm, dd],
     });
 
-    const now = nowBangkokISO();
     const attachment: Attachment = {
       id: `at_${Date.now()}_${randomUUID().slice(0, 8)}`,
       entity_type: entityType,
       entity_id: entityId,
       drive_file_id: drive.id,
-      name: drive.name,
+      name: originalName,
       mime_type: drive.mimeType,
       size: drive.size,
       uploaded_by: email,

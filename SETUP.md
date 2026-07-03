@@ -88,8 +88,9 @@ This lets people log in with their Google account instead of a shared passphrase
      created here — never the user's other Drive files. Google classes it as a
      **non-sensitive** scope, so it appears under "Your non-sensitive scopes" and adds **no** extra
      consent/verification friction — the "unverified app" screen above is solely from `gmail.send`.
-     Every upload lands in a **"Date Spot Planner"** folder inside **one central account's** Drive
-     (set by `ATTACHMENTS_OWNER_EMAIL`, below) — no matter who uploads — kept **private** (never
+     Every upload lands inside **one central account's** Drive (set by `ATTACHMENTS_OWNER_EMAIL`,
+     below) — no matter who uploads — organised as
+     **`Uploads/YYYY/MM/DD/HHMMSS_Uploader_Filename.ext`** (Bangkok-dated), kept **private** (never
      shared); the app streams files back to members through its own authenticated proxy. (We upload
      with a real user's token, not a service account, because a service account has no Drive storage
      on a personal Gmail account.)

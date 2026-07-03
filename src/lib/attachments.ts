@@ -14,21 +14,29 @@ export function isAttachmentEntity(v: unknown): v is AttachmentEntity {
   return v === "spot" || v === "plan" || v === "milestone";
 }
 
-// Columns A-K, in this exact order:
+// Columns A-L, in this exact order:
 //   id | entity_type | entity_id | drive_file_id | name | mime_type | size |
-//   uploaded_by | created_at | updated_at | deleted_at
+//   uploaded_by | created_at | updated_at | deleted_at | storage_owner
+// NOTE: storage_owner is appended LAST (after deleted_at) on purpose — it was
+// added after launch, and appending keeps every existing row's column indices
+// valid (old rows read storage_owner as "" and fall back to uploaded_by, since
+// those legacy files live in the uploader's own Drive).
 export interface Attachment {
   id: string;
   entity_type: AttachmentEntity;
   entity_id: string;
-  drive_file_id: string; // id of the file in the uploader's Google Drive
+  drive_file_id: string; // id of the file in the storage account's Google Drive
   name: string; // original filename
   mime_type: string;
   size: number; // bytes
-  uploaded_by: string; // lowercased email — whose Drive holds the bytes
+  uploaded_by: string; // lowercased email — who attached it (for display)
   created_at: string; // ISO 8601 +07:00
   updated_at: string;
   deleted_at: string; // ISO when soft-deleted, or ""
+  // Lowercased email of the account whose Drive actually HOLDS the bytes — the
+  // central owner for new uploads. "" on legacy rows ⇒ falls back to
+  // uploaded_by. Stream/delete must use THIS account's token.
+  storage_owner: string;
 }
 
 export const ATTACHMENT_COLUMNS = [
@@ -43,7 +51,14 @@ export const ATTACHMENT_COLUMNS = [
   "created_at",
   "updated_at",
   "deleted_at",
+  "storage_owner",
 ] as const;
+
+// Whose Drive holds an attachment's bytes: the recorded storage_owner, or (for
+// legacy rows saved before central storage) the uploader.
+export function storageOwnerOf(a: Attachment): string {
+  return (a.storage_owner || a.uploaded_by).trim().toLowerCase();
+}
 
 export const ATTACHMENTS_TAB = "attachments";
 export const FIRST_DATA_ROW = 2; // row 1 is the header
@@ -78,6 +93,7 @@ export function rowToAttachment(row: unknown[]): Attachment {
     created_at: str(row[8]),
     updated_at: str(row[9]),
     deleted_at: str(row[10]),
+    storage_owner: str(row[11]).trim().toLowerCase(),
   };
 }
 
@@ -94,6 +110,7 @@ export function attachmentToRow(a: Attachment): (string | number)[] {
     a.created_at,
     a.updated_at,
     a.deleted_at,
+    a.storage_owner,
   ];
 }
 

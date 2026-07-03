@@ -103,8 +103,13 @@ export async function POST(req: Request) {
     if (!access) return bad("not found", 404);
     if (!access.canSee) return bad("forbidden", 403);
 
-    const token = await getUserGmailToken(email);
-    if (!token) return bad("no_drive_grant", 403);
+    // Central storage: every file lands in ONE owner account's Drive (its quota),
+    // not the uploader's. We authenticate the upload with the owner's stored
+    // token; the uploader is still recorded (uploaded_by) for display.
+    const ownerEmail = (process.env.ATTACHMENTS_OWNER_EMAIL ?? "").trim().toLowerCase();
+    if (!ownerEmail) return bad("owner_not_configured", 500);
+    const token = await getUserGmailToken(ownerEmail);
+    if (!token) return bad("owner_no_drive_grant", 403);
 
     const bytes = Buffer.from(await file.arrayBuffer());
     const drive = await uploadToDrive(token, {
@@ -126,6 +131,7 @@ export async function POST(req: Request) {
       created_at: now,
       updated_at: now,
       deleted_at: "",
+      storage_owner: ownerEmail,
     };
     await appendAttachment(attachment);
     return NextResponse.json({ ok: true, attachment: toPublic(attachment) }, { status: 201 });

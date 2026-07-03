@@ -9,6 +9,7 @@ import { getUserGmailToken } from "@/lib/sheets";
 import { resolveEntityAccess } from "@/lib/entityAccess";
 import { DriveBlockedError, DriveScopeError, streamDriveFile } from "@/lib/drive";
 import { getAttachmentById } from "@/lib/attachmentsStore";
+import { storageOwnerOf } from "@/lib/attachments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +38,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    const ownerToken = await getUserGmailToken(attachment.uploaded_by);
+    const ownerToken = await getUserGmailToken(storageOwnerOf(attachment));
     if (!ownerToken) return NextResponse.json({ ok: false, error: "file_unavailable" }, { status: 502 });
 
     const { stream, contentType, contentLength } = await streamDriveFile(

@@ -28,6 +28,10 @@ function shortName(name: string, head = 16, tail = 12): string {
 function explain(error: string): string {
   if (error === "no_drive_grant")
     return "ยังไม่ได้ให้สิทธิ์ Google Drive — ออกจากระบบแล้วเข้าใหม่เพื่ออนุญาตให้แนบไฟล์ได้";
+  if (error === "owner_no_drive_grant")
+    return "บัญชีกลางที่เก็บไฟล์ยังไม่ได้ให้สิทธิ์ Google Drive — เจ้าของบัญชีกลางต้องเข้าสู่ระบบแล้วอนุญาต Drive ก่อน";
+  if (error === "owner_not_configured")
+    return "ยังไม่ได้ตั้งค่าบัญชีกลางสำหรับเก็บไฟล์ (ATTACHMENTS_OWNER_EMAIL)";
   if (error === "drive_blocked")
     return "เครือข่ายนี้บล็อก Google Drive (พร็อกซีองค์กร เช่น McAfee) — ลองใช้บนเว็บที่ deploy แล้ว หรือเครือข่ายที่ไม่ใช่ของบริษัท";
   if (error === "file_unavailable")

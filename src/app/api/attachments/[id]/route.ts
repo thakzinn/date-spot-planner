@@ -12,6 +12,7 @@ import {
   getAttachmentById,
   updateAttachmentById,
 } from "@/lib/attachmentsStore";
+import { storageOwnerOf } from "@/lib/attachments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,10 +38,11 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    // Remove the bytes from the uploader's Drive first (best-effort), then drop
-    // the row. Use the UPLOADER's token — only their Drive holds the file.
+    // Remove the bytes from the storage account's Drive first (best-effort),
+    // then drop the row. Use the STORAGE OWNER's token — only their Drive holds
+    // the file (falls back to the uploader for legacy rows).
     try {
-      const ownerToken = await getUserGmailToken(attachment.uploaded_by);
+      const ownerToken = await getUserGmailToken(storageOwnerOf(attachment));
       if (ownerToken) await deleteDriveFile(ownerToken, attachment.drive_file_id);
     } catch {
       /* Drive cleanup failed — still soft-delete the row so it leaves the UI */

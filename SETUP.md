@@ -88,18 +88,22 @@ This lets people log in with their Google account instead of a shared passphrase
      created here — never the user's other Drive files. Google classes it as a
      **non-sensitive** scope, so it appears under "Your non-sensitive scopes" and adds **no** extra
      consent/verification friction — the "unverified app" screen above is solely from `gmail.send`.
-     Uploaded files land in a **"Date Spot Planner"** folder in the uploader's own Drive and are kept
-     **private** (never shared); the app streams them back to members through its own authenticated
-     proxy. (We upload with the user's own token because a service account has no Drive storage on a
-     personal Gmail account.)
+     Every upload lands in a **"Date Spot Planner"** folder inside **one central account's** Drive
+     (set by `ATTACHMENTS_OWNER_EMAIL`, below) — no matter who uploads — kept **private** (never
+     shared); the app streams files back to members through its own authenticated proxy. (We upload
+     with a real user's token, not a service account, because a service account has no Drive storage
+     on a personal Gmail account.)
    - **After adding scopes, click `Save` on the Data access page** — the change stays pending (a
      `Save` / `Discard changes` bar shows at the bottom) until you do, and an unsaved `drive.file`
      scope won't be granted.
+   - **Set `ATTACHMENTS_OWNER_EMAIL`** to the central account's email, and have **that account sign
+     in to the app once** (granting Drive) so its token is stored — otherwise uploads fail with
+     `owner_no_drive_grant`. All attachments count against this one account's **15 GB** quota.
    - **Existing users must sign in again once** after these changes to grant Gmail **and** Drive
      access — the app re-prompts for consent and stores the (single) refresh token carrying both
-     scopes. Until they do, their spots still save but invites report "couldn't be sent" and
-     uploads report "ยังไม่ได้ให้สิทธิ์ Google Drive — ออกจากระบบแล้วเข้าใหม่." Uploads are capped at
-     **4 MB** each (kept under Vercel's serverless request-body limit).
+     scopes. Until they do, invites report "couldn't be sent" (and, for the owner account, uploads
+     report `owner_no_drive_grant`). Uploads are capped at **4 MB** each (kept under Vercel's
+     serverless request-body limit).
 2. Go to <https://console.cloud.google.com/apis/credentials> → **Create Credentials** →
    **OAuth client ID** → Application type **Web application**.
 3. Under **Authorized redirect URIs**, add **both**:
@@ -125,6 +129,8 @@ This lets people log in with their Google account instead of a shared passphrase
      `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
    - `APP_BASE_URL` = `http://localhost:3000` for local dev (set the Vercel URL in production).
    - `APP_TIMEZONE` = leave as `Asia/Bangkok`.
+   - `ATTACHMENTS_OWNER_EMAIL` = the central Google account whose Drive stores all file attachments
+     (that account must sign in once and grant Drive — see Part A step 4).
    - (No feed token to set — each user's iCal URL carries their own base64-encoded email.)
    - `GOOGLE_PRIVATE_KEY` — **the #1 thing people get wrong.** The JSON's `private_key` contains
      real newlines. Put it on **one line** with literal `\n` escapes, wrapped in double quotes:
@@ -192,7 +198,8 @@ Fix (already applied on this machine): point Node at the Windows trust store via
 3. Before the first deploy, expand **Environment Variables** and add **every** variable from your
    `.env` (Production scope), with the **same values**:
    `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_SHEET_ID`, `GOOGLE_OAUTH_CLIENT_ID`,
-   `GOOGLE_OAUTH_CLIENT_SECRET`, `SESSION_SECRET`, `APP_BASE_URL`, `APP_TIMEZONE`.
+   `GOOGLE_OAUTH_CLIENT_SECRET`, `SESSION_SECRET`, `APP_BASE_URL`, `APP_TIMEZONE`,
+   `ATTACHMENTS_OWNER_EMAIL`.
    - Set `APP_BASE_URL` to your real production URL, e.g. `https://<your-app>.vercel.app`.
    - Add that same `https://<your-app>.vercel.app/api/auth/google/callback` URL to the OAuth client's
      **Authorized redirect URIs** (Part C2, step 3) — otherwise Google sign-in fails in production.

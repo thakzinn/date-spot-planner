@@ -10,6 +10,7 @@ import { formatBangkok, isoToLocalInput, localInputToISO } from "@/lib/format";
 import DateTimePicker from "./DateTimePicker";
 import TimelineView from "./TimelineView";
 import Segmented from "./Segmented";
+import CollapsibleText from "./CollapsibleText";
 
 interface PlanPayload {
   title: string;
@@ -308,23 +309,25 @@ export default function PlansView({
                 className="rounded-xl border border-black/10 p-3 dark:border-white/15"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <button onClick={() => setSelectedId(p.id)} className="text-left">
-                    <span className="font-medium">{p.title}</span>
-                    {!isOwner(p) && (
-                      <span
-                        className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
-                        title={p.created_by ? `Invited by ${p.created_by}` : "Shared with you"}
-                      >
-                        invited
-                      </span>
-                    )}
-                    {p.status !== "active" && (
-                      <span className="ml-2 rounded-full bg-black/10 px-2 py-0.5 text-xs dark:bg-white/15">
-                        {p.status}
-                      </span>
-                    )}
+                  <div className="min-w-0">
+                    <button onClick={() => setSelectedId(p.id)} className="text-left">
+                      <span className="font-medium">{p.title}</span>
+                      {!isOwner(p) && (
+                        <span
+                          className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
+                          title={p.created_by ? `Invited by ${p.created_by}` : "Shared with you"}
+                        >
+                          invited
+                        </span>
+                      )}
+                      {p.status !== "active" && (
+                        <span className="ml-2 rounded-full bg-black/10 px-2 py-0.5 text-xs dark:bg-white/15">
+                          {p.status}
+                        </span>
+                      )}
+                    </button>
                     {p.description && (
-                      <p className="whitespace-pre-line text-sm opacity-70">{p.description}</p>
+                      <CollapsibleText text={p.description} className="text-sm opacity-70" lines={3} />
                     )}
                     {p.due_date && (
                       <p className="text-xs opacity-60">🎯 due {formatBangkok(p.due_date)}</p>
@@ -339,7 +342,7 @@ export default function PlansView({
                         <span className="text-amber-600"> · 🔔 {counts.today} due today</span>
                       )}
                     </p>
-                  </button>
+                  </div>
                   <div className="flex gap-1.5">
                     <button onClick={() => setSelectedId(p.id)} className={btnGhost}>
                       Open

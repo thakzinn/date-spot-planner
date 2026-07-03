@@ -405,7 +405,9 @@ export default function TimelineView({
             ‹ All plans
           </button>
           <h2 className="text-lg font-semibold">{plan.title}</h2>
-          {plan.description && <p className="text-sm opacity-70">{plan.description}</p>}
+          {plan.description && (
+            <p className="whitespace-pre-line text-sm opacity-70">{plan.description}</p>
+          )}
           {attachments !== null && (
             <div className="mt-2 max-w-md">
               <Attachments

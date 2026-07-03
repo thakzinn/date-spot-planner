@@ -323,7 +323,9 @@ export default function PlansView({
                         {p.status}
                       </span>
                     )}
-                    {p.description && <p className="text-sm opacity-70">{p.description}</p>}
+                    {p.description && (
+                      <p className="whitespace-pre-line text-sm opacity-70">{p.description}</p>
+                    )}
                     {p.due_date && (
                       <p className="text-xs opacity-60">🎯 due {formatBangkok(p.due_date)}</p>
                     )}

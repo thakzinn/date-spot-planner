@@ -113,6 +113,13 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
   const now = nowBangkokISO();
   let updated: Milestone;
 
+  // Whether this request can introduce/move a checkpoint or milestone date. Only
+  // then do we re-check the "checkpoint ≤ its milestone due" invariant, so legacy
+  // rows already violating it stay confirmable/toggleable (confirm/reopen/toggle/
+  // remove change no dates).
+  const cpOp = action === "checkpoint" ? str(body.op).trim() : "";
+  const touchesDates = action === "" || action === "extend" || cpOp === "add" || cpOp === "edit";
+
   if (action === "confirm") {
     // Confirming a milestone closes out every checkpoint under it too, so it
     // can't be marked done while some of its own steps are still open.
@@ -151,6 +158,16 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
       updated_at: now,
       updated_by: email,
     };
+  }
+
+  // A checkpoint is a step toward its milestone — it can't fall due after it.
+  // Covers edit (new checkpoint dates), checkpoint add/edit, and extend (a
+  // shortened milestone due mustn't leave a checkpoint stranded past it).
+  if (touchesDates && updated.checkpoints.some((c) => exceedsPlanDue(c.due_date, updated.due_date))) {
+    return NextResponse.json(
+      { ok: false, error: `Checkpoints must be on or before the milestone due date (${formatBangkok(updated.due_date)}).` },
+      { status: 400 },
+    );
   }
 
   // Keep the invariant: no milestone/checkpoint date may fall after the plan due.

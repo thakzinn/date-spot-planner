@@ -109,15 +109,16 @@ export async function getAllMilestones(): Promise<Milestone[]> {
     .filter((m) => !m.deleted_at);
 }
 
-// A plan's milestones, ordered by order_index then due_date.
+// A plan's milestones, ordered chronologically by due_date (order_index only
+// breaks ties between milestones that share the same due date/time).
 export async function getMilestonesByPlan(planId: string): Promise<Milestone[]> {
   const all = await getAllMilestones();
   return all
     .filter((m) => m.plan_id === planId)
     .sort(
       (a, b) =>
-        a.order_index - b.order_index ||
-        (Date.parse(a.due_date) || 0) - (Date.parse(b.due_date) || 0),
+        (Date.parse(a.due_date) || 0) - (Date.parse(b.due_date) || 0) ||
+        a.order_index - b.order_index,
     );
 }
 

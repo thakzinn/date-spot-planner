@@ -30,6 +30,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const parsed = parseMilestoneInput(body);
   if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
 
+  // A checkpoint is a step toward its milestone — it can't fall due after it.
+  if (parsed.value.checkpoints.some((c) => exceedsPlanDue(c.due_date, parsed.value.due_date))) {
+    return NextResponse.json(
+      { ok: false, error: `Checkpoints must be on or before the milestone due date (${formatBangkok(parsed.value.due_date)}).` },
+      { status: 400 },
+    );
+  }
+
   // A milestone (and its dated checkpoints) must not fall after the plan's due.
   if (plan.due_date) {
     const over =

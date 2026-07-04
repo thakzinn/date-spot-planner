@@ -160,12 +160,14 @@ export default function TimelineView({
   const attInitial = (type: AttachmentEntity, id: string): AttachmentPublic[] =>
     attachments?.[`${type}:${id}`] ?? [];
 
+  // Chronological by due_date so the spine reads top-to-bottom in time;
+  // order_index only breaks ties between milestones sharing a due date/time.
   const ordered = useMemo(
     () =>
       [...milestones].sort(
         (a, b) =>
-          a.order_index - b.order_index ||
-          (Date.parse(a.due_date) || 0) - (Date.parse(b.due_date) || 0),
+          (Date.parse(a.due_date) || 0) - (Date.parse(b.due_date) || 0) ||
+          a.order_index - b.order_index,
       ),
     [milestones],
   );
@@ -436,7 +438,7 @@ export default function TimelineView({
             <button onClick={onEditPlan} className="rounded-lg border border-black/15 dark:border-white/25 px-3 py-1.5 text-sm">
               Edit plan
             </button>
-          )}
+          )}‹ All plans
           <button
             onClick={() => {
               setEditing(null);

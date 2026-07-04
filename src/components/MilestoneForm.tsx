@@ -132,6 +132,15 @@ export default function MilestoneForm({
         assignees: row.assignees,
       }));
 
+    // A checkpoint is a step toward its milestone — it can't fall due after it.
+    const msLimit = Date.parse(dueISO);
+    const lateForMs = checkpoints.find((c) => c.due_date && Date.parse(c.due_date) > msLimit);
+    if (lateForMs) {
+      return setError(
+        `Checkpoint “${lateForMs.title}” is after the milestone's due date (${formatBangkok(dueISO)}).`,
+      );
+    }
+
     // Enforce the plan deadline up front (the server re-checks too).
     if (planDue) {
       const limit = Date.parse(planDue);

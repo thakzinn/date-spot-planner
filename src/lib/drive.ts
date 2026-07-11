@@ -45,9 +45,19 @@ export interface DriveFile {
 // Mint a fresh access token from the stored refresh token. Throws if the token
 // is missing/revoked.
 async function accessTokenFor(refreshToken: string): Promise<string> {
-  const { token } = await refreshTokenClient(refreshToken).getAccessToken();
-  if (!token) throw new Error("Could not obtain a Google access token");
-  return token;
+  try {
+    const { token } = await refreshTokenClient(refreshToken).getAccessToken();
+    if (!token) throw new Error("Could not obtain a Google access token");
+    return token;
+  } catch (err) {
+    // Refresh token revoked/expired (commonly the 7-day expiry while the OAuth
+    // app stays in "Testing") → Google's token endpoint returns invalid_grant
+    // BEFORE we ever reach Drive. Map it to a re-login notice, not a raw 500.
+    if (err instanceof Error && /invalid_grant/i.test(err.message)) {
+      throw new DriveScopeError();
+    }
+    throw err;
+  }
 }
 
 // Turn a failed Drive fetch Response into the right error. Be PRECISE: only an

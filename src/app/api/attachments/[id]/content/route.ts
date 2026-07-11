@@ -29,6 +29,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const { id } = await ctx.params;
   const download = new URL(req.url).searchParams.get("download") === "1";
 
+  // Whose Drive holds the bytes — captured here so the catch can tell "your own
+  // Google grant expired" (you can fix it by re-login) from "the central storage
+  // account's grant expired" (only that account's owner can fix it).
+  let storageOwner = "";
+
   try {
     const attachment = await getAttachmentById(id);
     if (!attachment) return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
@@ -38,7 +43,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    const ownerToken = await getUserGmailToken(storageOwnerOf(attachment));
+    storageOwner = storageOwnerOf(attachment);
+    const ownerToken = await getUserGmailToken(storageOwner);
     if (!ownerToken) return NextResponse.json({ ok: false, error: "file_unavailable" }, { status: 502 });
 
     const { stream, contentType, contentLength } = await streamDriveFile(
@@ -59,7 +65,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       return NextResponse.json({ ok: false, error: "drive_blocked" }, { status: 502 });
     }
     if (err instanceof DriveScopeError) {
-      return NextResponse.json({ ok: false, error: "file_unavailable" }, { status: 502 });
+      // Token revoked/expired or missing the drive.file grant. If it's the
+      // signed-in user's OWN token, they can fix it by signing in again
+      // (reauth_self → the client auto-logs-out and re-runs Google sign-in).
+      // Otherwise it's the central storage account — re-login by the viewer
+      // won't help, so surface a distinct code.
+      const self = !!storageOwner && storageOwner === session.email.trim().toLowerCase();
+      return NextResponse.json(
+        { ok: false, error: self ? "reauth_self" : "reauth_owner" },
+        { status: 502 },
+      );
     }
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : String(err) },

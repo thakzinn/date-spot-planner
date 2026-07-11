@@ -34,6 +34,10 @@ function explain(error: string): string {
     return "ยังไม่ได้ตั้งค่าบัญชีกลางสำหรับเก็บไฟล์ (ATTACHMENTS_OWNER_EMAIL)";
   if (error === "drive_blocked")
     return "เครือข่ายนี้บล็อก Google Drive (พร็อกซีองค์กร เช่น McAfee) — ลองใช้บนเว็บที่ deploy แล้ว หรือเครือข่ายที่ไม่ใช่ของบริษัท";
+  if (error === "reauth_self")
+    return "เซสชัน Google ของคุณหมดอายุ — กรุณาเข้าสู่ระบบใหม่";
+  if (error === "reauth_owner")
+    return "บัญชีกลางที่เก็บไฟล์หมดอายุการเชื่อมต่อ Google — ผู้ดูแลระบบต้องเข้าสู่ระบบใหม่ (การเข้าสู่ระบบใหม่ของคุณไม่ช่วยแก้)";
   if (error === "file_unavailable")
     return "เปิดไฟล์ไม่ได้ตอนนี้ (เจ้าของไฟล์อาจต้องเข้าสู่ระบบใหม่)";
   return error;
@@ -125,6 +129,76 @@ export default function Attachments({
     }
   }
 
+  // The signed-in user's OWN Google grant expired (reauth_self). Log them out
+  // and bounce straight back into Google sign-in, returning to this page so the
+  // freshly-minted token can open the file.
+  const reauthSelf = useCallback(async () => {
+    const c = await Swal.fire({
+      title: "เซสชัน Google หมดอายุ",
+      text: "การเชื่อมต่อ Google ของคุณหมดอายุ ต้องเข้าสู่ระบบใหม่เพื่อเปิดไฟล์",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "เข้าสู่ระบบใหม่",
+      cancelButtonText: "ยกเลิก",
+    });
+    if (!c.isConfirmed) return;
+    try {
+      await fetch("/api/auth", { method: "DELETE" }); // clear the session cookie
+    } catch {
+      // ignore — sign-in below reissues the session regardless
+    }
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = `/api/auth/google/start?next=${next}`;
+  }, []);
+
+  // Open (preview) or download a file through the private proxy. We fetch the
+  // bytes ourselves so we can intercept an expired-grant error and react —
+  // native <a href> would just dump the raw JSON error into a new tab. Files are
+  // capped at a few MB, so buffering into a blob is cheap.
+  const openFile = useCallback(
+    async (a: AttachmentPublic, download: boolean) => {
+      const href = `/api/attachments/${a.id}/content${download ? "?download=1" : ""}`;
+      // For inline preview, open the tab synchronously on the click gesture so
+      // popup blockers don't kill it; we point it at the blob once bytes arrive.
+      const tab = download ? null : window.open("about:blank", "_blank");
+      try {
+        const res = await fetch(href, { cache: "no-store" });
+        if (!res.ok) {
+          tab?.close();
+          let code = String(res.status);
+          try {
+            code = (await res.json())?.error || code;
+          } catch {
+            // non-JSON body — keep the status code as the error key
+          }
+          if (code === "reauth_self") {
+            await reauthSelf();
+            return;
+          }
+          showError(explain(code));
+          return;
+        }
+        const url = URL.createObjectURL(await res.blob());
+        if (download) {
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = a.name;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        } else if (tab) {
+          tab.location.href = url;
+        }
+        // Revoke after a delay so the tab/download has time to consume the blob.
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } catch {
+        tab?.close();
+        showError(explain("file_unavailable"));
+      }
+    },
+    [reauthSelf],
+  );
+
   async function remove(a: AttachmentPublic) {
     const c = await Swal.fire({
       title: "ลบไฟล์นี้?",
@@ -191,7 +265,12 @@ export default function Attachments({
                 key={a.id}
                 className="flex items-center gap-2 rounded-lg border border-black/10 p-1.5 dark:border-white/15"
               >
-                <a href={href} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                <button
+                  type="button"
+                  onClick={() => openFile(a, false)}
+                  className="shrink-0"
+                  aria-label={`เปิด ${a.name}`}
+                >
                   {isImage ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -205,28 +284,29 @@ export default function Attachments({
                       📄
                     </span>
                   )}
-                </a>
+                </button>
                 <div className="min-w-0 flex-1">
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block truncate hover:underline"
+                  <button
+                    type="button"
+                    onClick={() => openFile(a, false)}
+                    className="block w-full truncate text-left hover:underline"
                     title={a.name}
                   >
                     {shortName(a.name)}
-                  </a>
+                  </button>
                   <span className="text-xs opacity-50">
                     {formatSize(a.size)} · @{a.uploaded_by.split("@")[0]}
                   </span>
                 </div>
-                <a
-                  href={`${href}?download=1`}
+                <button
+                  type="button"
+                  onClick={() => openFile(a, true)}
                   className="shrink-0 rounded-lg border border-black/15 px-2 py-1 text-xs dark:border-white/25"
                   title="ดาวน์โหลด"
+                  aria-label={`ดาวน์โหลด ${a.name}`}
                 >
                   ⬇
-                </a>
+                </button>
                 {canEdit && (
                   <button
                     type="button"

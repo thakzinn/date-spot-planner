@@ -24,14 +24,21 @@ export interface SchedulePushBody {
   taskId: string;
 }
 
-// The public URL Upstash calls back into. On Vercel this is provided
-// automatically; locally you must expose your dev server (see README/env notes)
-// and set UPSTASH_WORKFLOW_URL to the tunnel origin.
+// The public URL Upstash calls back into after the durable sleep. This MUST be
+// publicly reachable — QStash hits it from the internet.
+//
+// IMPORTANT: do NOT use VERCEL_URL here. That's the deployment-specific URL
+// (project-hash-scope.vercel.app), which sits behind Vercel Deployment
+// Protection (SSO) — QStash's callback gets 302'd to a login wall and the
+// workflow never resumes. VERCEL_PROJECT_PRODUCTION_URL is the stable, public
+// production alias (project.vercel.app) with no SSO gate, which is what we want.
+// UPSTASH_WORKFLOW_URL overrides everything (set it to a tunnel origin for local
+// dev, or a custom domain).
 function baseUrl(): string {
   const explicit = process.env.UPSTASH_WORKFLOW_URL;
   if (explicit) return explicit.replace(/\/+$/, "");
-  const vercel = process.env.VERCEL_URL;
-  if (vercel) return `https://${vercel}`;
+  const prod = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  if (prod) return `https://${prod}`;
   return "http://localhost:3000";
 }
 

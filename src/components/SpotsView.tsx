@@ -203,8 +203,10 @@ export default function SpotsView({
     showLoading("Logging out…");
     try {
       await fetch("/api/auth", { method: "DELETE" });
-      router.replace("/login");
-      router.refresh();
+      // Hard navigation: a full page load tears down the Swal overlay and all
+      // client-side state. A soft router.replace() would leave the "Logging
+      // out…" modal stuck open (it lives outside the React tree).
+      window.location.replace("/login");
     } catch (e) {
       showError(e instanceof Error ? e.message : "Logout failed");
     }

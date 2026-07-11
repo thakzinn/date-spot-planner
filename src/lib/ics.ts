@@ -7,6 +7,13 @@ import { isTodayBangkok } from "./dates";
 const PRODID = "-//date-spot-planner//EN";
 const EVENT_DURATION_MS = 2 * 60 * 60 * 1000; // 2h default duration
 
+// The app timezone. Asia/Bangkok is a fixed UTC+7 offset with no DST, so we can
+// derive local wall-clock stamps by shifting the instant and formatting without
+// a trailing "Z". Apple Calendar recognizes the IANA name, so we omit VTIMEZONE
+// (mirrors the reference feed the app is modeled on).
+const TZID = "Asia/Bangkok";
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+
 // DISPLAY alarms fired relative to event start: 30 min before, 10 min before,
 // and at the moment the event begins. TRIGGER is RELATED=START by default.
 const ALARM_TRIGGERS = ["-PT30M", "-PT10M", "PT0S"];
@@ -24,11 +31,33 @@ function esc(text: string): string {
     .replace(/\r?\n/g, "\\n");
 }
 
-// UTC timestamp form: YYYYMMDDTHHMMSSZ
+// UTC timestamp form: YYYYMMDDTHHMMSSZ (used for DTSTAMP/LAST-MODIFIED).
 function toUtcStamp(input: string | number | Date): string {
   const d = input instanceof Date ? input : new Date(input);
   if (Number.isNaN(d.getTime())) return "";
   return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+// Bangkok local wall-clock form: YYYYMMDDTHHMMSS (no "Z"). Paired with a
+// ;TZID=Asia/Bangkok parameter on DTSTART/DTEND so Apple shows the event at the
+// intended local time. Shift the instant by +07:00, then read the UTC fields.
+function toBangkokLocalStamp(input: string | number | Date): string {
+  const d = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(d.getTime())) return "";
+  return new Date(d.getTime() + BANGKOK_OFFSET_MS)
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}Z$/, "");
+}
+
+// Apple-specific structured location: gives Calendar a tappable map pin. The
+// X-TITLE parameter value is quoted so a place name with spaces/commas is legal
+// per RFC 5545 §3.2 (inner quotes stripped). X-ADDRESS mirrors the reference
+// feed by carrying the escaped "lat,lng" string.
+function appleStructuredLocation(title: string, lat: number, lng: number): string {
+  const geo = `${lat},${lng}`;
+  const xtitle = `"${(title ?? "").replace(/"/g, "")}"`;
+  return `X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-ADDRESS=${esc(geo)};X-APPLE-RADIUS=49;X-TITLE=${xtitle}:geo:${geo}`;
 }
 
 // Fold lines to <=75 octets (UTF-8 aware), continuation lines start with a space.
@@ -70,11 +99,11 @@ interface EventOptions {
 }
 
 function buildEvent(p: Place, opts: EventOptions = {}): string[] | null {
-  const dtstart = toUtcStamp(p.planned_date);
+  const dtstart = toBangkokLocalStamp(p.planned_date);
   if (!dtstart) return null; // unusable date — skip
 
   const startMs = Date.parse(p.planned_date);
-  const dtend = toUtcStamp(new Date(startMs + EVENT_DURATION_MS));
+  const dtend = toBangkokLocalStamp(new Date(startMs + EVENT_DURATION_MS));
   // DTSTAMP/LAST-MODIFIED bound to updated_at (NOT now) to avoid poll churn.
   const stamp = toUtcStamp(p.updated_at) || toUtcStamp(p.created_at) || dtstart;
   const visited = p.status === "visited";
@@ -90,9 +119,10 @@ function buildEvent(p: Place, opts: EventOptions = {}): string[] | null {
   const lines = [
     "BEGIN:VEVENT",
     `UID:${p.id}@datespot`,
+    `TZID:${TZID}`,
     `DTSTAMP:${stamp}`,
-    `DTSTART:${dtstart}`,
-    `DTEND:${dtend}`,
+    `DTSTART;TZID=${TZID}:${dtstart}`,
+    `DTEND;TZID=${TZID}:${dtend}`,
     `SEQUENCE:${sequenceFor(p)}`,
     `LAST-MODIFIED:${stamp}`,
     `SUMMARY:${esc(summary)}`,
@@ -101,6 +131,7 @@ function buildEvent(p: Place, opts: EventOptions = {}): string[] | null {
   lines.push(`LOCATION:${esc(p.place_name)}`);
   if (Number.isFinite(p.lat) && Number.isFinite(p.lng)) {
     lines.push(`GEO:${p.lat};${p.lng}`);
+    lines.push(appleStructuredLocation(p.place_name, p.lat, p.lng));
   }
   // URL is a URI-typed property — no TEXT escaping. Our links carry no commas
   // or semicolons, so they pass through verbatim (folding still applies).
@@ -169,18 +200,19 @@ interface TimelineEvent {
 // A deadline-style VEVENT for a milestone or dated checkpoint. Done items are
 // marked CONFIRMED with a "✅ " prefix and carry no alarms.
 function buildTimelineEvent(ev: TimelineEvent): string[] | null {
-  const dtstart = toUtcStamp(ev.dueDate);
+  const dtstart = toBangkokLocalStamp(ev.dueDate);
   if (!dtstart) return null;
-  const dtend = toUtcStamp(new Date(Date.parse(ev.dueDate) + EVENT_DURATION_MS));
-  const stamp = toUtcStamp(ev.stamp) || dtstart;
+  const dtend = toBangkokLocalStamp(new Date(Date.parse(ev.dueDate) + EVENT_DURATION_MS));
+  const stamp = toUtcStamp(ev.stamp) || toUtcStamp(ev.dueDate);
   const summary = (ev.done ? "✅ " : "") + ev.summary;
 
   const lines = [
     "BEGIN:VEVENT",
     `UID:${ev.uid}`,
+    `TZID:${TZID}`,
     `DTSTAMP:${stamp}`,
-    `DTSTART:${dtstart}`,
-    `DTEND:${dtend}`,
+    `DTSTART;TZID=${TZID}:${dtstart}`,
+    `DTEND;TZID=${TZID}:${dtend}`,
     `LAST-MODIFIED:${stamp}`,
     `SUMMARY:${esc(summary)}`,
   ];

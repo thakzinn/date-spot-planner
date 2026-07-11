@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
 import type { Place } from "@/lib/places";
@@ -11,7 +10,6 @@ import { bangkokDateStr } from "@/lib/dates";
 import SpotList from "./SpotList";
 import SpotForm, { type SpotPayload } from "./SpotForm";
 import Segmented from "./Segmented";
-import BuildInfo from "./BuildInfo";
 
 type SpotScope = "me" | "invited" | "all";
 type SpotPeriod = "current" | "past" | "all";
@@ -24,13 +22,7 @@ const MapView = dynamic(() => import("./MapView"), {
   ),
 });
 
-export default function SpotsView({
-  feedToken,
-  userEmail,
-}: {
-  feedToken: string;
-  userEmail: string;
-}) {
+export default function SpotsView({ userEmail }: { userEmail: string }) {
   const router = useRouter();
   const [places, setPlaces] = useState<Place[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,9 +35,7 @@ export default function SpotsView({
   // (Current = planned & not past due, Past = visited/cancelled or date gone by).
   const [scope, setScope] = useState<SpotScope>("all");
   const [period, setPeriod] = useState<SpotPeriod>("current");
-  const [copied, setCopied] = useState(false);
   const [preview, setPreview] = useState<[number, number] | null>(null);
-  const [feedUrl, setFeedUrl] = useState("");
 
   const onPreview = useCallback((coords: [number, number] | null) => {
     setPreview(coords);
@@ -199,89 +189,22 @@ export default function SpotsView({
     }
   }
 
-  async function logout() {
-    showLoading("Logging out…");
-    try {
-      await fetch("/api/auth", { method: "DELETE" });
-      // Hard navigation: a full page load tears down the Swal overlay and all
-      // client-side state. A soft router.replace() would leave the "Logging
-      // out…" modal stuck open (it lives outside the React tree).
-      window.location.replace("/login");
-    } catch (e) {
-      showError(e instanceof Error ? e.message : "Logout failed");
-    }
-  }
-
-  // Build the feed URL after mount — window.origin isn't available during SSR,
-  // and branching on it during render would cause a hydration mismatch.
-  useEffect(() => {
-    if (feedToken) {
-      setFeedUrl(`${window.location.origin}/api/calendar.ics?token=${feedToken}`);
-    }
-  }, [feedToken]);
-
-  async function copyFeed() {
-    if (!feedUrl) return;
-    try {
-      await navigator.clipboard.writeText(feedUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-      showSuccess("Calendar URL copied");
-    } catch {
-      /* clipboard may be blocked; ignore */
-    }
-  }
-
   return (
-    <div className="flex h-dvh flex-col overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-black/10 dark:border-white/10 px-4 py-3">
-        <div>
-          <h1 className="text-lg font-semibold">Spots &amp; Map</h1>
-          <Link href="/" className="text-sm underline opacity-70">
-            ‹ Dashboard
-          </Link>
-          <BuildInfo />
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              setEditing(null);
-              setShowForm(true);
-            }}
-            className="rounded-lg bg-pink-600 px-3 py-1.5 text-sm font-medium text-white"
-          >
-            + Add spot
-          </button>
-          <Link
-            href="/plans"
-            className="rounded-lg border border-black/15 dark:border-white/25 px-3 py-1.5 text-sm"
-          >
-            Plans &amp; Timeline
-          </Link>
-          {feedUrl && (
-            <button
-              onClick={copyFeed}
-              title={feedUrl}
-              className="rounded-lg border border-black/15 dark:border-white/25 px-3 py-1.5 text-sm"
-            >
-              {copied ? "Copied!" : "Copy calendar URL"}
-            </button>
-          )}
-          {userEmail && (
-            <span className="hidden text-xs opacity-60 sm:inline" title={userEmail}>
-              {userEmail}
-            </span>
-          )}
-          <button onClick={logout} className="px-2 py-1.5 text-sm underline opacity-70">
-            Log out
-          </button>
-        </div>
-      </header>
-
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_1fr] lg:grid-cols-2 lg:grid-rows-1">
+    <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_1fr] lg:grid-cols-2 lg:grid-rows-1">
         <section className="order-2 min-h-0 overflow-y-auto p-4 lg:order-1">
           <div className="mb-2 space-y-2">
-            <h2 className="font-medium">Spots</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-medium">สถานที่</h2>
+              <button
+                onClick={() => {
+                  setEditing(null);
+                  setShowForm(true);
+                }}
+                className="rounded-lg bg-pink-600 px-3 py-1.5 text-sm font-medium text-white"
+              >
+                + เพิ่มสถานที่
+              </button>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <Segmented
                 value={scope}
@@ -362,7 +285,6 @@ export default function SpotsView({
             onRevert={(id) => setVisited(id, "unvisit")}
           />
         </section>
-      </div>
     </div>
   );
 }

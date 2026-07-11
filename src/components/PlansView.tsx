@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
 import { isGmail, type Milestone, type Plan } from "@/lib/plans";
@@ -24,15 +23,11 @@ type PlanPeriod = "current" | "past" | "all";
 
 export default function PlansView({
   userEmail,
-  feedToken,
 }: {
   userEmail: string;
   userName?: string;
-  feedToken?: string;
 }) {
   const router = useRouter();
-  const [feedUrl, setFeedUrl] = useState("");
-  const [copied, setCopied] = useState(false);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,26 +68,6 @@ export default function PlansView({
   useEffect(() => {
     load();
   }, [load]);
-
-  // Build the feed URL after mount — window.origin isn't available during SSR,
-  // and branching on it during render would cause a hydration mismatch.
-  useEffect(() => {
-    if (feedToken) {
-      setFeedUrl(`${window.location.origin}/api/plans.ics?token=${feedToken}`);
-    }
-  }, [feedToken]);
-
-  async function copyFeed() {
-    if (!feedUrl) return;
-    try {
-      await navigator.clipboard.writeText(feedUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-      showSuccess("Plans calendar URL copied");
-    } catch {
-      /* clipboard may be blocked; ignore */
-    }
-  }
 
   const milestonesByPlan = useMemo(() => {
     const map = new Map<string, Milestone[]>();
@@ -201,40 +176,21 @@ export default function PlansView({
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-3xl flex-col p-4">
-      <header className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-black/10 pb-3 dark:border-white/10">
-        <div>
-          <h1 className="text-lg font-semibold">Plans &amp; Timeline</h1>
-          <Link href="/" className="text-sm underline opacity-70">
-            ‹ Date spots
-          </Link>
-        </div>
-        <div className="flex items-center gap-2">
-          {!selected && (
-            <button
-              onClick={() => {
-                setEditingPlan(null);
-                setShowPlanForm(true);
-              }}
-              className="rounded-lg bg-pink-600 px-3 py-1.5 text-sm font-medium text-white"
-            >
-              + New plan
-            </button>
-          )}
-          {feedUrl && (
-            <button
-              onClick={copyFeed}
-              title={feedUrl}
-              className="rounded-lg border border-black/15 dark:border-white/25 px-3 py-1.5 text-sm"
-            >
-              {copied ? "Copied!" : "Copy plans calendar URL"}
-            </button>
-          )}
-          <span className="hidden text-xs opacity-60 sm:inline" title={userEmail}>
-            {userEmail}
-          </span>
-        </div>
-      </header>
+    <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-y-auto p-4">
+      {!selected && (
+        <header className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-black/10 pb-3 dark:border-white/10">
+          <h1 className="text-lg font-semibold">แผน &amp; ไทม์ไลน์</h1>
+          <button
+            onClick={() => {
+              setEditingPlan(null);
+              setShowPlanForm(true);
+            }}
+            className="rounded-lg bg-pink-600 px-3 py-1.5 text-sm font-medium text-white"
+          >
+            + แผนใหม่
+          </button>
+        </header>
+      )}
 
       {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
 

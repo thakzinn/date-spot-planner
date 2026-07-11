@@ -1,12 +1,16 @@
 // GET /api/cron/reminders
-// Scheduled job (Vercel Cron): emails each plan's members about milestones (and
-// dated checkpoints) that are due today (Bangkok) or overdue and still pending.
-// Guarded by CRON_SECRET — Vercel Cron sends "Authorization: Bearer <secret>".
-// Sent "as" each plan's creator via their stored Gmail grant. Best-effort.
+// Scheduled job (Vercel Cron): reminds each plan's members about milestones (and
+// dated checkpoints) that are due today (Bangkok) or overdue and still pending,
+// and each spot's members about spots whose planned date has arrived/passed and
+// aren't visited/cancelled yet. Reminders go out by email (plans, "as" the
+// creator via their Gmail grant) AND by browser push to every member who has
+// enabled notifications. Guarded by CRON_SECRET — Vercel Cron sends
+// "Authorization: Bearer <secret>". Best-effort throughout.
 import { NextResponse } from "next/server";
 import { getAllPlans, getAllMilestones } from "@/lib/plansStore";
-import { getUserGmailToken } from "@/lib/sheets";
+import { getAllPlaces, getUserGmailToken } from "@/lib/sheets";
 import { sendPlanNotice } from "@/lib/gmail";
+import { sendPushToUser } from "@/lib/push";
 import { bangkokDateStr, isWithinWindow } from "@/lib/dates";
 import { formatBangkok } from "@/lib/format";
 import type { Milestone, Plan } from "@/lib/plans";
@@ -32,6 +36,21 @@ interface DueItem {
   label: string;
   due: string;
   overdue: boolean;
+}
+
+// Fan a single push out to many members (best-effort). sendPushToUser never
+// throws and silently no-ops for anyone without an enabled subscription, so we
+// just fire them concurrently and tally how many devices actually received it.
+async function pushToMembers(
+  recipients: string[],
+  payload: { title: string; body: string; url: string; tag: string },
+): Promise<number> {
+  const results = await Promise.all(
+    recipients.map((email) =>
+      sendPushToUser(email, payload).catch(() => ({ sent: 0 })),
+    ),
+  );
+  return results.reduce((n, r) => n + r.sent, 0);
 }
 
 function collectDue(m: Milestone, todayStr: string): DueItem[] {
@@ -79,15 +98,15 @@ export async function GET(req: Request) {
     if (due.length) duePerPlan.set(m.plan_id, [...(duePerPlan.get(m.plan_id) ?? []), ...due]);
   }
 
-  const results: Array<{ plan: string; sent: string[]; failed: string[]; error?: string }> = [];
+  const results: Array<{ plan: string; sent: string[]; failed: string[]; pushed?: number; error?: string }> = [];
   for (const [planId, items] of duePerPlan) {
     const plan = byPlan.get(planId)!;
     const creator = plan.created_by.trim().toLowerCase();
     const recipients = [creator, ...plan.invitees].filter(Boolean);
     if (!recipients.length) continue;
 
-    const rows = items
-      .sort((a, b) => Date.parse(a.due) - Date.parse(b.due))
+    const sorted = items.sort((a, b) => Date.parse(a.due) - Date.parse(b.due));
+    const rows = sorted
       .map(
         (it) =>
           `<li>${it.overdue ? "⚠️ " : "🔔 "}<b>${esc(it.label)}</b> — ${esc(formatBangkok(it.due))}${
@@ -100,14 +119,72 @@ export async function GET(req: Request) {
       `<div style="font-family:system-ui,Arial,sans-serif;font-size:14px;line-height:1.5">` +
       `<p>Reminders for <b>${esc(plan.title)}</b>:</p><ul>${rows}</ul></div>`;
 
+    // Browser push, in parallel with the email. Summarize the first item and
+    // roll the rest into a "+N more" so the notification body stays short.
+    const anyOverdue = sorted.some((it) => it.overdue);
+    const more = items.length - 1;
+    const pushBody =
+      `${anyOverdue ? "⚠️ " : ""}${sorted[0].label}` +
+      (more > 0 ? ` และอีก ${more} รายการ` : "");
+    const pushed = await pushToMembers(recipients, {
+      title: `⏰ ${plan.title}`,
+      body: pushBody,
+      url: "/plans",
+      tag: `plan-due-${planId}`,
+    });
+
     try {
       const token = await getUserGmailToken(creator);
       const r = await sendPlanNotice({ email: creator, name: plan.title }, token, subject, html, recipients);
-      results.push({ plan: planId, sent: r.sent, failed: r.failed, error: r.error });
+      results.push({ plan: planId, sent: r.sent, failed: r.failed, pushed, error: r.error });
     } catch (err) {
-      results.push({ plan: planId, sent: [], failed: recipients, error: err instanceof Error ? err.message : String(err) });
+      results.push({ plan: planId, sent: [], failed: recipients, pushed, error: err instanceof Error ? err.message : String(err) });
     }
   }
 
-  return NextResponse.json({ ok: true, plansNotified: results.length, results });
+  // ---- spots (places) --------------------------------------------------------
+  // A spot is "due" when its planned date has arrived today (Bangkok) or passed,
+  // it's still within the reminder window, and it hasn't been visited/cancelled.
+  // Reminders are grouped per member so each person gets one push covering all
+  // of their due spots, rather than one push per spot.
+  const places = (await getAllPlaces()).filter(
+    (p) => p.status === "planned" && isDue(p.planned_date, todayStr),
+  );
+  const spotsByMember = new Map<string, { name: string; due: string; overdue: boolean }[]>();
+  for (const p of places) {
+    const members = [p.created_by.trim().toLowerCase(), ...p.invitees].filter(Boolean);
+    const item = {
+      name: p.place_name,
+      due: p.planned_date,
+      overdue: bangkokDateStr(new Date(Date.parse(p.planned_date))) < todayStr,
+    };
+    for (const email of members) {
+      spotsByMember.set(email, [...(spotsByMember.get(email) ?? []), item]);
+    }
+  }
+
+  const spotResults: Array<{ email: string; spots: number; pushed: number }> = [];
+  for (const [email, items] of spotsByMember) {
+    const sorted = items.sort((a, b) => Date.parse(a.due) - Date.parse(b.due));
+    const anyOverdue = sorted.some((it) => it.overdue);
+    const more = items.length - 1;
+    const body =
+      `${anyOverdue ? "⚠️ " : "📍 "}${sorted[0].name}` +
+      (more > 0 ? ` และอีก ${more} สถานที่` : "");
+    const pushed = await pushToMembers([email], {
+      title: `📍 ${items.length} สถานที่ถึงกำหนด`,
+      body,
+      url: "/spots",
+      tag: "spots-due",
+    });
+    spotResults.push({ email, spots: items.length, pushed });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    plansNotified: results.length,
+    results,
+    spotsNotified: spotResults.length,
+    spotResults,
+  });
 }

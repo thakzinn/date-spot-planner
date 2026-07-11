@@ -3,31 +3,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { showLoading, showSuccess, showError } from "@/lib/swal";
 import type { Place } from "@/lib/places";
 import type { Milestone, Plan } from "@/lib/plans";
 import { formatBangkok } from "@/lib/format";
 import { bangkokDateStr, nowBangkokISO } from "@/lib/dates";
-import BuildInfo from "./BuildInfo";
 
 // The home page is a read-only dashboard: a rollup of where our date spots stand
 // by status and how many plans are still open, each anchored by the single
 // nearest thing coming up. Managing spots lives on /spots, plans on /plans.
-export default function HomeView({
-  feedToken,
-  userEmail,
-}: {
-  feedToken: string;
-  userEmail: string;
-}) {
+// Global chrome (nav, notifications, log out, calendar links) lives in AppShell.
+export default function HomeView() {
   const router = useRouter();
   const [places, setPlaces] = useState<Place[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
-  const [feedUrl, setFeedUrl] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -121,81 +112,10 @@ export default function HomeView({
     };
   }, [places, plans, milestones]);
 
-  async function logout() {
-    showLoading("Logging out…");
-    try {
-      await fetch("/api/auth", { method: "DELETE" });
-      // Hard navigation: a full page load tears down the Swal overlay and all
-      // client-side state. A soft router.replace() would leave the "Logging
-      // out…" modal stuck open (it lives outside the React tree).
-      window.location.replace("/login");
-    } catch (e) {
-      showError(e instanceof Error ? e.message : "Logout failed");
-    }
-  }
-
-  // Build the feed URL after mount — window.origin isn't available during SSR,
-  // and branching on it during render would cause a hydration mismatch.
-  useEffect(() => {
-    if (feedToken) {
-      setFeedUrl(`${window.location.origin}/api/calendar.ics?token=${feedToken}`);
-    }
-  }, [feedToken]);
-
-  async function copyFeed() {
-    if (!feedUrl) return;
-    try {
-      await navigator.clipboard.writeText(feedUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-      showSuccess("Calendar URL copied");
-    } catch {
-      /* clipboard may be blocked; ignore */
-    }
-  }
-
   return (
-    <div className="flex h-dvh flex-col overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-black/10 px-4 py-3 dark:border-white/10">
-        <div>
-          <h1 className="text-lg font-semibold">Date Spot Planner</h1>
-          <BuildInfo />
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/spots"
-            className="rounded-lg bg-pink-600 px-3 py-1.5 text-sm font-medium text-white"
-          >
-            Spots &amp; Map
-          </Link>
-          <Link
-            href="/plans"
-            className="rounded-lg border border-black/15 px-3 py-1.5 text-sm dark:border-white/25"
-          >
-            Plans &amp; Timeline
-          </Link>
-          {feedUrl && (
-            <button
-              onClick={copyFeed}
-              title={feedUrl}
-              className="rounded-lg border border-black/15 px-3 py-1.5 text-sm dark:border-white/25"
-            >
-              {copied ? "Copied!" : "Copy calendar URL"}
-            </button>
-          )}
-          {userEmail && (
-            <span className="hidden text-xs opacity-60 sm:inline" title={userEmail}>
-              {userEmail}
-            </span>
-          )}
-          <button onClick={logout} className="px-2 py-1.5 text-sm underline opacity-70">
-            Log out
-          </button>
-        </div>
-      </header>
-
-      <main className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto max-w-4xl space-y-6">
+    <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="mx-auto max-w-4xl space-y-6">
+        <h1 className="text-lg font-semibold">หน้าหลัก</h1>
           {error && <p className="text-sm text-red-600">{error}</p>}
 
           {/* Date spots */}
@@ -269,8 +189,7 @@ export default function HomeView({
               />
             </div>
           </section>
-        </div>
-      </main>
+      </div>
     </div>
   );
 }

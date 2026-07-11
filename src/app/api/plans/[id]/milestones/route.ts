@@ -8,6 +8,7 @@ import { formatBangkok } from "@/lib/format";
 import { exceedsPlanDue, parseMilestoneInput, type Milestone, type Plan } from "@/lib/plans";
 import { stampCheckpoints } from "@/lib/milestoneOps";
 import { diffAssignees, notifyAssignees } from "@/lib/assignNotice";
+import { scheduleMilestoneReminders } from "@/lib/scheduleReminder";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,6 +79,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     await appendMilestone(milestone);
     // Best-effort: email anyone assigned to this new milestone / its checkpoints.
     await notifyAssignees(session, plan, diffAssignees(null, milestone));
+    // Best-effort: schedule an exact-time push reminder for the due date. Never
+    // throws (no-ops if QStash is unconfigured), so it can't fail the response.
+    await scheduleMilestoneReminders(plan, milestone);
     return NextResponse.json({ ok: true, milestone }, { status: 201 });
   } catch (err) {
     return NextResponse.json(

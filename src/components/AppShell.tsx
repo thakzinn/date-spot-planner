@@ -116,7 +116,7 @@ export default function AppShell({
             onClick={() => setOpen(false)}
             aria-hidden
           />
-          <div className="absolute inset-y-0 left-0 shadow-xl">{sidebar}</div>
+          <div className="absolute inset-y-0 left-0 bg-white shadow-xl dark:bg-[#0a0a0a]">{sidebar}</div>
         </div>
       )}
 

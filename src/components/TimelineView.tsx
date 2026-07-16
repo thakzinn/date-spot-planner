@@ -21,6 +21,18 @@ function milestoneState(due: string, done: boolean): MilestoneState {
   return "upcoming";
 }
 
+function checkpointEffectiveDueDate(checkpoint: Checkpoint, milestoneDue: string): string {
+  return checkpoint.due_date || milestoneDue;
+}
+
+function checkpointSortWeight(checkpoint: Checkpoint, milestoneDue: string): number {
+  if (checkpoint.done) return 3;
+  const state = milestoneState(checkpointEffectiveDueDate(checkpoint, milestoneDue), false);
+  if (state === "overdue") return 0;
+  if (state === "today") return 1;
+  return 2;
+}
+
 const STATE_PILL: Record<MilestoneState, { label: string; cls: string }> = {
   done: { label: "เสร็จแล้ว", cls: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200" },
   overdue: { label: "เลยกำหนด", cls: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200" },
@@ -500,6 +512,14 @@ export default function TimelineView({
             const early =
               m.status === "done" && m.done_at && Date.parse(m.done_at) < Date.parse(m.due_date);
             const doneCount = m.checkpoints.filter((c) => c.done).length;
+            const sortedCheckpoints = [...m.checkpoints].sort((a, b) => {
+              const weight = checkpointSortWeight(a, m.due_date) - checkpointSortWeight(b, m.due_date);
+              if (weight !== 0) return weight;
+              const aDue = Date.parse(checkpointEffectiveDueDate(a, m.due_date));
+              const bDue = Date.parse(checkpointEffectiveDueDate(b, m.due_date));
+              if (!Number.isNaN(aDue) && !Number.isNaN(bDue) && aDue !== bDue) return aDue - bDue;
+              return a.title.localeCompare(b.title, "th");
+            });
             return (
               <li
                 key={m.id}
@@ -578,7 +598,15 @@ export default function TimelineView({
 
                   {m.checkpoints.length > 0 && (
                     <ul className="mt-2 space-y-1 border-t border-black/5 pt-2 dark:border-white/10">
-                      {m.checkpoints.map((c) => (
+                      {sortedCheckpoints.map((c) => {
+                        const cpDue = checkpointEffectiveDueDate(c, m.due_date);
+                        const cpState = milestoneState(cpDue, c.done);
+                        const cpPill = STATE_PILL[cpState];
+                        const beforeMilestone =
+                          !!c.due_date &&
+                          !Number.isNaN(Date.parse(c.due_date)) &&
+                          Date.parse(c.due_date) < Date.parse(m.due_date);
+                        return (
                         <li key={c.id} className="text-sm">
                           <div className="flex flex-wrap items-center gap-2">
                             <input
@@ -596,6 +624,12 @@ export default function TimelineView({
                             >
                               {c.title}
                             </button>
+                            <span className={`rounded-full px-2 py-0.5 text-[11px] ${cpPill.cls}`}>{cpPill.label}</span>
+                            {beforeMilestone && !c.done && (
+                              <span className="rounded-full bg-pink-100 px-2 py-0.5 text-[11px] text-pink-800 dark:bg-pink-900/40 dark:text-pink-200">
+                                โฟกัสก่อน milestone
+                              </span>
+                            )}
                             {c.due_date && <span className="text-xs opacity-50">· {formatBangkok(c.due_date)}</span>}
                             {c.due_date && <Countdown due={c.due_date} done={c.done} />}
                             {c.assignees.length > 0 && <AssigneeChips emails={c.assignees} />}
@@ -621,7 +655,8 @@ export default function TimelineView({
                             </div>
                           )}
                         </li>
-                      ))}
+                        );
+                      })}
                       <li className="pt-1 text-xs opacity-50">
                         {doneCount}/{m.checkpoints.length} checkpoint เสร็จแล้ว
                       </li>

@@ -281,11 +281,12 @@ export default function TimelineView({
       for (const c of m.checkpoints) {
         if (c.done) continue;
         const due = checkpointEffectiveDueDate(c, m.due_date);
-        const state = milestoneState(due, false);
         const beforeMilestone =
           !!c.due_date &&
           !Number.isNaN(Date.parse(c.due_date)) &&
           Date.parse(c.due_date) < Date.parse(m.due_date);
+        if (!beforeMilestone) continue;
+        const state = milestoneState(due, false);
         const weight = state === "overdue" ? 0 : state === "today" ? 1 : beforeMilestone ? 2 : 3;
         list.push({ milestone: m, checkpoint: c, due, state, beforeMilestone, weight });
       }
@@ -515,7 +516,7 @@ export default function TimelineView({
       {focusCheckpoints.length > 0 && (
         <section className="rounded-xl border border-pink-500/30 bg-pink-50/40 p-3 dark:border-pink-400/25 dark:bg-pink-950/20">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold">🎯 ต้องโฟกัสตอนนี้ (Checkpoint)</h3>
+            <h3 className="text-sm font-semibold">🎯 งานก่อน milestone (Checkpoint)</h3>
             <span className="text-xs opacity-60">{focusCheckpoints.length} รายการที่ยังไม่เสร็จ</span>
           </div>
           <ul className="space-y-1.5">

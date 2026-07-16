@@ -1,11 +1,12 @@
-// GET /api/attachments/:id/content[?download=1]
-//   Stream an attachment's bytes to a signed-in member. The file stays PRIVATE
-//   in the uploader's Drive — we proxy it here using the uploader's stored token
-//   so no public Drive link is ever exposed. ?download=1 forces a save dialog;
-//   otherwise the browser previews inline (images, PDFs, etc.).
+// GET /api/attachments/:id/content[?download=1][&token=base64url(email)]
+//   Stream an attachment's bytes to a permitted member. Access is allowed for a
+//   signed-in member OR via a valid calendar capability token. The file stays
+//   PRIVATE in the uploader's Drive — we proxy it here using the uploader's
+//   stored token so no public Drive link is ever exposed. ?download=1 forces a
+//   save dialog; otherwise the browser previews inline (images, PDFs, etc.).
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
-import { getUserGmailToken } from "@/lib/sheets";
+import { decodeFeedToken, getSession } from "@/lib/auth";
+import { getUserGmailToken, isActiveUser } from "@/lib/sheets";
 import { resolveEntityAccess } from "@/lib/entityAccess";
 import { DriveBlockedError, DriveScopeError, streamDriveFile } from "@/lib/drive";
 import { getAttachmentById } from "@/lib/attachmentsStore";
@@ -23,11 +24,15 @@ function contentDisposition(name: string, download: boolean): string {
 }
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const reqUrl = new URL(req.url);
   const session = await getSession();
-  if (!session) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  const tokenEmail = decodeFeedToken(reqUrl.searchParams.get("token") ?? "");
+  const feedEmail = tokenEmail && (await isActiveUser(tokenEmail)) ? tokenEmail : "";
+  const viewerEmail = session?.email.trim().toLowerCase() || feedEmail;
+  if (!viewerEmail) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
   const { id } = await ctx.params;
-  const download = new URL(req.url).searchParams.get("download") === "1";
+  const download = reqUrl.searchParams.get("download") === "1";
 
   // Whose Drive holds the bytes — captured here so the catch can tell "your own
   // Google grant expired" (you can fix it by re-login) from "the central storage
@@ -38,7 +43,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const attachment = await getAttachmentById(id);
     if (!attachment) return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
 
-    const access = await resolveEntityAccess(session.email, attachment.entity_type, attachment.entity_id);
+    const access = await resolveEntityAccess(viewerEmail, attachment.entity_type, attachment.entity_id);
     if (!access || !access.canSee) {
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
@@ -70,7 +75,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       // (reauth_self → the client auto-logs-out and re-runs Google sign-in).
       // Otherwise it's the central storage account — re-login by the viewer
       // won't help, so surface a distinct code.
-      const self = !!storageOwner && storageOwner === session.email.trim().toLowerCase();
+      const self = !!storageOwner && storageOwner === viewerEmail;
       return NextResponse.json(
         { ok: false, error: self ? "reauth_self" : "reauth_owner" },
         { status: 502 },

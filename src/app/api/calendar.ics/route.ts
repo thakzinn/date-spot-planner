@@ -4,7 +4,13 @@
 import { NextResponse } from "next/server";
 import { getAllPlaces, isActiveUser } from "@/lib/sheets";
 import { getAllPlans, getAllMilestones } from "@/lib/plansStore";
-import { placeEventLines, buildMilestoneEvents, wrapCalendar } from "@/lib/ics";
+import { getAllAttachments } from "@/lib/attachmentsStore";
+import {
+  placeEventLines,
+  buildMilestoneEvents,
+  wrapCalendar,
+  type IcsAttachmentRef,
+} from "@/lib/ics";
 import { isWithinWindow } from "@/lib/dates";
 import { decodeFeedToken } from "@/lib/auth";
 
@@ -36,15 +42,40 @@ export async function GET(req: Request) {
     (p) => p.created_by.trim().toLowerCase() === email || p.invitees.includes(email),
   );
   const planTitle = new Map(plans.map((p) => [p.id, p.title]));
-  const milestoneLines = (await getAllMilestones())
-    .filter((m) => planTitle.has(m.plan_id) && isWithinWindow(m.due_date))
-    .flatMap((m) => buildMilestoneEvents(m, planTitle.get(m.plan_id) ?? ""));
+  const [allMilestones, allAttachments] = await Promise.all([getAllMilestones(), getAllAttachments()]);
+  const milestones = allMilestones.filter((m) => planTitle.has(m.plan_id) && isWithinWindow(m.due_date));
+  const milestoneIds = new Set(milestones.map((m) => m.id));
 
   // Prefer APP_BASE_URL (stable behind a proxy) for the confirm-visit links;
   // fall back to the request origin. Matches lib/google-oauth callbackUrl.
-  const confirmBaseUrl = process.env.APP_BASE_URL?.replace(/\/$/, "") ?? reqUrl.origin;
+  const baseUrl = process.env.APP_BASE_URL?.replace(/\/$/, "") ?? reqUrl.origin;
+  const attachmentRefsByPlan = new Map<string, IcsAttachmentRef[]>();
+  const attachmentRefsByMilestone = new Map<string, IcsAttachmentRef[]>();
+  for (const a of allAttachments) {
+    const ref: IcsAttachmentRef = {
+      name: a.name,
+      mimeType: a.mime_type,
+      url: `${baseUrl}/api/attachments/${encodeURIComponent(a.id)}/content?token=${encodeURIComponent(token)}`,
+    };
+    if (a.entity_type === "plan" && planTitle.has(a.entity_id)) {
+      const list = attachmentRefsByPlan.get(a.entity_id) ?? [];
+      list.push(ref);
+      attachmentRefsByPlan.set(a.entity_id, list);
+    } else if (a.entity_type === "milestone" && milestoneIds.has(a.entity_id)) {
+      const list = attachmentRefsByMilestone.get(a.entity_id) ?? [];
+      list.push(ref);
+      attachmentRefsByMilestone.set(a.entity_id, list);
+    }
+  }
+  const milestoneLines = milestones.flatMap((m) =>
+    buildMilestoneEvents(m, planTitle.get(m.plan_id) ?? "", [
+      ...(attachmentRefsByPlan.get(m.plan_id) ?? []),
+      ...(attachmentRefsByMilestone.get(m.id) ?? []),
+    ]),
+  );
+
   const body = wrapCalendar([
-    ...placeEventLines(feed, { confirmBaseUrl }),
+    ...placeEventLines(feed, { confirmBaseUrl: baseUrl }),
     ...milestoneLines,
   ]);
   return new NextResponse(body, {

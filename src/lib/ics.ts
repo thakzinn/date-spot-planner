@@ -195,6 +195,24 @@ interface TimelineEvent {
   done: boolean;
   stamp: string; // ISO for DTSTAMP/LAST-MODIFIED (the parent milestone's updated_at)
   description?: string;
+  attachments?: IcsAttachmentRef[];
+}
+
+export interface IcsAttachmentRef {
+  name: string;
+  url: string;
+  mimeType?: string;
+}
+
+function dedupeAttachments(items: IcsAttachmentRef[]): IcsAttachmentRef[] {
+  const seen = new Set<string>();
+  const out: IcsAttachmentRef[] = [];
+  for (const item of items) {
+    if (!item.url || seen.has(item.url)) continue;
+    seen.add(item.url);
+    out.push(item);
+  }
+  return out;
 }
 
 // A deadline-style VEVENT for a milestone or dated checkpoint. Done items are
@@ -205,6 +223,11 @@ function buildTimelineEvent(ev: TimelineEvent): string[] | null {
   const dtend = toBangkokLocalStamp(new Date(Date.parse(ev.dueDate) + EVENT_DURATION_MS));
   const stamp = toUtcStamp(ev.stamp) || toUtcStamp(ev.dueDate);
   const summary = (ev.done ? "✅ " : "") + ev.summary;
+  const attachments = dedupeAttachments(ev.attachments ?? []);
+  const descParts = [ev.description];
+  if (attachments.length) {
+    descParts.push(`Attachments:\n${attachments.map((a) => `- ${a.name}: ${a.url}`).join("\n")}`);
+  }
 
   const lines = [
     "BEGIN:VEVENT",
@@ -216,7 +239,13 @@ function buildTimelineEvent(ev: TimelineEvent): string[] | null {
     `LAST-MODIFIED:${stamp}`,
     `SUMMARY:${esc(summary)}`,
   ];
-  if (ev.description) lines.push(`DESCRIPTION:${esc(ev.description)}`);
+  if (descParts.filter(Boolean).length) {
+    lines.push(`DESCRIPTION:${esc(descParts.filter((s): s is string => !!s).join("\n\n"))}`);
+  }
+  for (const a of attachments) {
+    const mimeType = (a.mimeType ?? "").trim();
+    lines.push(mimeType ? `ATTACH;FMTTYPE=${mimeType}:${a.url}` : `ATTACH:${a.url}`);
+  }
   lines.push(`STATUS:${ev.done ? "CONFIRMED" : "TENTATIVE"}`);
   if (!ev.done) {
     for (const trigger of MILESTONE_ALARM_TRIGGERS) {
@@ -235,7 +264,11 @@ function buildTimelineEvent(ev: TimelineEvent): string[] | null {
 
 // Build the VEVENT lines for a milestone plus any of its dated checkpoints.
 // `planTitle` prefixes the summary so events read e.g. "อ่าน X · บทที่ 1".
-export function buildMilestoneEvents(m: Milestone, planTitle: string): string[] {
+export function buildMilestoneEvents(
+  m: Milestone,
+  planTitle: string,
+  attachments: IcsAttachmentRef[] = [],
+): string[] {
   const base = planTitle ? `${planTitle} · ${m.title}` : m.title;
   const stamp = m.updated_at || m.created_at;
   const groups: string[][] = [];
@@ -247,6 +280,7 @@ export function buildMilestoneEvents(m: Milestone, planTitle: string): string[] 
     done: m.status === "done",
     stamp,
     description: m.notes || undefined,
+    attachments,
   });
   if (ms) groups.push(ms);
 
@@ -258,6 +292,7 @@ export function buildMilestoneEvents(m: Milestone, planTitle: string): string[] 
       dueDate: c.due_date,
       done: c.done,
       stamp,
+      attachments,
     });
     if (cp) groups.push(cp);
   }
@@ -267,7 +302,7 @@ export function buildMilestoneEvents(m: Milestone, planTitle: string): string[] 
 // A deadline-style VEVENT for a whole plan, anchored on its overall due_date.
 // Returns [] if the plan has no usable due_date. The "🎯 " prefix mirrors how
 // plan deadlines read in the app's UI.
-export function buildPlanEvents(p: Plan): string[] {
+export function buildPlanEvents(p: Plan, attachments: IcsAttachmentRef[] = []): string[] {
   const ev = buildTimelineEvent({
     uid: `${p.id}@datespot-plan`,
     summary: `🎯 ${p.title}`,
@@ -275,6 +310,7 @@ export function buildPlanEvents(p: Plan): string[] {
     done: p.status === "done",
     stamp: p.updated_at || p.created_at,
     description: p.description || undefined,
+    attachments,
   });
   return ev ?? [];
 }

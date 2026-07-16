@@ -8,7 +8,13 @@
 import { NextResponse } from "next/server";
 import { isActiveUser } from "@/lib/sheets";
 import { getAllPlans, getAllMilestones } from "@/lib/plansStore";
-import { buildPlanEvents, buildMilestoneEvents, wrapCalendar } from "@/lib/ics";
+import { getAllAttachments } from "@/lib/attachmentsStore";
+import {
+  buildPlanEvents,
+  buildMilestoneEvents,
+  wrapCalendar,
+  type IcsAttachmentRef,
+} from "@/lib/ics";
 import { isFuture } from "@/lib/dates";
 import { decodeFeedToken } from "@/lib/auth";
 
@@ -35,12 +41,38 @@ export async function GET(req: Request) {
 
   // Every milestone (and dated checkpoint) belonging to a kept plan — the full
   // timeline, not filtered by date, so done/early items still show.
-  const milestoneLines = (await getAllMilestones())
-    .filter((m) => planTitle.has(m.plan_id))
-    .flatMap((m) => buildMilestoneEvents(m, planTitle.get(m.plan_id) ?? ""));
+  const [allMilestones, allAttachments] = await Promise.all([getAllMilestones(), getAllAttachments()]);
+  const milestones = allMilestones.filter((m) => planTitle.has(m.plan_id));
+  const milestoneIds = new Set(milestones.map((m) => m.id));
+  const baseUrl = process.env.APP_BASE_URL?.replace(/\/$/, "") ?? reqUrl.origin;
+  const attachmentRefsByPlan = new Map<string, IcsAttachmentRef[]>();
+  const attachmentRefsByMilestone = new Map<string, IcsAttachmentRef[]>();
+  for (const a of allAttachments) {
+    const ref: IcsAttachmentRef = {
+      name: a.name,
+      mimeType: a.mime_type,
+      url: `${baseUrl}/api/attachments/${encodeURIComponent(a.id)}/content?token=${encodeURIComponent(token)}`,
+    };
+    if (a.entity_type === "plan" && planTitle.has(a.entity_id)) {
+      const list = attachmentRefsByPlan.get(a.entity_id) ?? [];
+      list.push(ref);
+      attachmentRefsByPlan.set(a.entity_id, list);
+    } else if (a.entity_type === "milestone" && milestoneIds.has(a.entity_id)) {
+      const list = attachmentRefsByMilestone.get(a.entity_id) ?? [];
+      list.push(ref);
+      attachmentRefsByMilestone.set(a.entity_id, list);
+    }
+  }
+  const milestoneLines = milestones.flatMap((m) =>
+    buildMilestoneEvents(m, planTitle.get(m.plan_id) ?? "", [
+      ...(attachmentRefsByPlan.get(m.plan_id) ?? []),
+      ...(attachmentRefsByMilestone.get(m.id) ?? []),
+    ]),
+  );
+  const planLines = plans.flatMap((p) => buildPlanEvents(p, attachmentRefsByPlan.get(p.id) ?? []));
 
   const body = wrapCalendar(
-    [...plans.flatMap(buildPlanEvents), ...milestoneLines],
+    [...planLines, ...milestoneLines],
     { calName: "Upcoming Plans" },
   );
   return new NextResponse(body, {

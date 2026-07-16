@@ -79,9 +79,9 @@ export default function Attachments({
       );
       const data = await res.json();
       if (data.ok) setItems(data.attachments as AttachmentPublic[]);
-      else setError(explain(data.error ?? "Failed to load"));
+      else setError(explain(data.error ?? "โหลดข้อมูลไม่สำเร็จ"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
+      setError(e instanceof Error ? e.message : "โหลดข้อมูลไม่สำเร็จ");
     } finally {
       setLoading(false);
     }
@@ -113,7 +113,7 @@ export default function Attachments({
       const res = await fetch("/api/attachments", { method: "POST", body });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        const msg = explain(data.error ?? "Upload failed");
+        const msg = explain(data.error ?? "อัปโหลดไม่สำเร็จ");
         setError(msg);
         showError(msg);
         return;
@@ -121,7 +121,7 @@ export default function Attachments({
       setItems((prev) => [data.attachment as AttachmentPublic, ...prev]);
       showSuccess("แนบไฟล์แล้ว");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Upload failed";
+      const msg = e instanceof Error ? e.message : "อัปโหลดไม่สำเร็จ";
       setError(msg);
       showError(msg);
     } finally {
@@ -214,13 +214,13 @@ export default function Attachments({
       const res = await fetch(`/api/attachments/${a.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        showError(explain(data.error ?? "Delete failed"));
+        showError(explain(data.error ?? "ลบไม่สำเร็จ"));
         return;
       }
       setItems((prev) => prev.filter((x) => x.id !== a.id));
       showSuccess("ลบไฟล์แล้ว");
     } catch (e) {
-      showError(e instanceof Error ? e.message : "Delete failed");
+      showError(e instanceof Error ? e.message : "ลบไม่สำเร็จ");
     }
   }
 

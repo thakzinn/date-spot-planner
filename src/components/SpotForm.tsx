@@ -74,7 +74,7 @@ export default function SpotForm({
     if (!mapsUrl.trim()) return;
     setExtracting(true);
     setHint("");
-    showLoading("Extracting coordinates…");
+      showLoading("กำลังดึงพิกัด…");
     try {
       const res = await fetch("/api/extract", {
         method: "POST",
@@ -89,18 +89,18 @@ export default function SpotForm({
         if (data.name) setPlaceName(data.name);
         setHint(
           data.name
-            ? `Got ${data.name} — ${data.lat}, ${data.lng}`
-            : `Got ${data.lat}, ${data.lng}`,
+              ? `พบ ${data.name} — ${data.lat}, ${data.lng}`
+              : `พบพิกัด ${data.lat}, ${data.lng}`,
         );
-        showSuccess(data.name ? `Found ${data.name}` : "Coordinates extracted");
+          showSuccess(data.name ? `พบ ${data.name}` : "ดึงพิกัดสำเร็จ");
       } else {
-        const msg = data.error ?? "Could not extract coordinates — paste lat, lng manually.";
+          const msg = data.error ?? "ดึงพิกัดไม่สำเร็จ — กรอก lat, lng เอง";
         setHint(msg);
         showError(msg);
       }
     } catch {
-      setHint("Extraction failed — paste lat, lng manually.");
-      showError("Extraction failed — paste lat, lng manually.");
+        setHint("ดึงพิกัดไม่สำเร็จ — กรอก lat, lng เอง");
+        showError("ดึงพิกัดไม่สำเร็จ — กรอก lat, lng เอง");
     } finally {
       setExtracting(false);
     }
@@ -112,11 +112,11 @@ export default function SpotForm({
     const email = raw.trim().toLowerCase().replace(/[,;]+$/, "");
     if (!email) return invitees;
     if (!isEmail(email)) {
-      setInviteeError(`"${email}" is not a valid email.`);
+        setInviteeError(`"${email}" ไม่ใช่อีเมลที่ถูกต้อง`);
       return invitees;
     }
     if (!isGmail(email)) {
-      setInviteeError(`"${email}" must be a @gmail.com address — sign-in uses Google.`);
+        setInviteeError(`"${email}" ต้องเป็นอีเมล @gmail.com — การเข้าสู่ระบบใช้ Google`);
       return invitees;
     }
     setInviteeError("");
@@ -166,11 +166,11 @@ export default function SpotForm({
       return cancelEditInvitee();
     }
     if (!isEmail(email)) {
-      setInviteeError(`"${email}" is not a valid email.`);
+        setInviteeError(`"${email}" ไม่ใช่อีเมลที่ถูกต้อง`);
       return;
     }
     if (!isGmail(email)) {
-      setInviteeError(`"${email}" must be a @gmail.com address — sign-in uses Google.`);
+        setInviteeError(`"${email}" ต้องเป็นอีเมล @gmail.com — การเข้าสู่ระบบใช้ Google`);
       return;
     }
     if (invitees.includes(email)) {
@@ -200,10 +200,10 @@ export default function SpotForm({
     setError("");
     const latN = parseFloat(lat);
     const lngN = parseFloat(lng);
-    if (!placeName.trim()) return setError("Name is required.");
-    if (!localDate) return setError("Date/time is required.");
+      if (!placeName.trim()) return setError("กรุณากรอกชื่อสถานที่");
+      if (!localDate) return setError("กรุณาระบุวันที่/เวลา");
     if (!Number.isFinite(latN) || !Number.isFinite(lngN))
-      return setError("Latitude and longitude are required (paste a Maps link and Extract, or type them).");
+        return setError("ต้องระบุละติจูดและลองจิจูด (วางลิงก์ Maps แล้วกด Extract หรือกรอกเอง)");
 
     // Flush a half-typed invitee so it isn't silently dropped on save.
     const finalInvitees = inviteeDraft.trim() ? addInvitee(inviteeDraft) : invitees;
@@ -230,10 +230,10 @@ export default function SpotForm({
 
   return (
     <form onSubmit={submit} className="space-y-3">
-      <h2 className="text-lg font-semibold">{initial ? "Edit spot" : "Add a spot"}</h2>
+      <h2 className="text-lg font-semibold">{initial ? "แก้ไขสถานที่" : "เพิ่มสถานที่"}</h2>
 
       <label className="block text-sm">
-        <span className="opacity-70">Google Maps link (optional — for auto name &amp; coordinates)</span>
+        <span className="opacity-70">ลิงก์ Google Maps (ไม่บังคับ — ดึงชื่อ &amp; พิกัดอัตโนมัติ)</span>
         <div className="flex gap-2">
           <input
             className={inputCls}
@@ -247,34 +247,34 @@ export default function SpotForm({
             disabled={extracting || !mapsUrl.trim()}
             className="shrink-0 rounded-lg border border-black/15 dark:border-white/25 px-3 py-2 text-sm disabled:opacity-50"
           >
-            {extracting ? "…" : "Extract"}
+            {extracting ? "…" : "ดึงพิกัด"}
           </button>
         </div>
       </label>
       {hint && <p className="text-xs opacity-70">{hint}</p>}
 
       <label className="block text-sm">
-        <span className="opacity-70">Place name</span>
+        <span className="opacity-70">ชื่อสถานที่</span>
         <input className={inputCls} value={placeName} onChange={(e) => setPlaceName(e.target.value)} />
       </label>
       <div className="grid grid-cols-2 gap-2">
         <label className="block text-sm">
-          <span className="opacity-70">Latitude</span>
+          <span className="opacity-70">ละติจูด</span>
           <input className={inputCls} value={lat} onChange={(e) => setLat(e.target.value)} inputMode="decimal" />
         </label>
         <label className="block text-sm">
-          <span className="opacity-70">Longitude</span>
+          <span className="opacity-70">ลองจิจูด</span>
           <input className={inputCls} value={lng} onChange={(e) => setLng(e.target.value)} inputMode="decimal" />
         </label>
       </div>
 
       <label className="block text-sm">
-        <span className="opacity-70">When (Asia/Bangkok)</span>
+        <span className="opacity-70">วันเวลา (Asia/Bangkok)</span>
         <DateTimePicker value={localDate} onChange={setLocalDate} />
       </label>
 
       <div className="block text-sm">
-        <span className="opacity-70">Invite by email (optional)</span>
+        <span className="opacity-70">เชิญทางอีเมล (ไม่บังคับ)</span>
         <div
           className={`flex flex-wrap items-center gap-1.5 rounded-lg border border-black/15 dark:border-white/20 px-2 py-1.5 focus-within:border-pink-500`}
         >
@@ -291,21 +291,21 @@ export default function SpotForm({
                 }}
                 onKeyDown={onEditInviteeKeyDown}
                 onBlur={commitEditInvitee}
-                aria-label={`Edit ${email}`}
+                aria-label={`แก้ไข ${email}`}
                 className="min-w-[8rem] rounded-full bg-pink-100 px-2 py-0.5 text-xs text-pink-800 outline-none ring-1 ring-pink-400 dark:bg-pink-900/40 dark:text-pink-200"
               />
             ) : (
               <span
                 key={email}
                 onDoubleClick={() => startEditInvitee(email)}
-                title="Double-click to edit"
+                title="ดับเบิลคลิกเพื่อแก้ไข"
                 className="flex cursor-pointer items-center gap-1 rounded-full bg-pink-100 px-2 py-0.5 text-xs text-pink-800 dark:bg-pink-900/40 dark:text-pink-200"
               >
                 {email}
                 <button
                   type="button"
                   onClick={() => removeInvitee(email)}
-                  aria-label={`Remove ${email}`}
+                  aria-label={`ลบ ${email}`}
                   className="leading-none opacity-60 hover:opacity-100"
                 >
                   ×
@@ -322,11 +322,11 @@ export default function SpotForm({
             }}
             onKeyDown={onInviteeKeyDown}
             onBlur={() => inviteeDraft.trim() && addInvitee(inviteeDraft)}
-            placeholder={invitees.length ? "Add another…" : "name@gmail.com"}
+            placeholder={invitees.length ? "เพิ่มอีกคน…" : "name@gmail.com"}
             className="min-w-[8rem] flex-1 bg-transparent px-1 py-0.5 outline-none"
           />
         </div>
-        <p className="mt-1 text-xs opacity-60">Press Enter or comma to add. Double-click a chip to edit.</p>
+        <p className="mt-1 text-xs opacity-60">กด Enter หรือ comma เพื่อเพิ่ม ดับเบิลคลิกที่ชิปเพื่อแก้ไข</p>
         {inviteeError && <p className="mt-1 text-xs text-red-600">{inviteeError}</p>}
 
         {pendingRecipients.length > 0 ? (
@@ -338,15 +338,15 @@ export default function SpotForm({
               className="mt-0.5"
             />
             <span>
-              Email a calendar invite (from you) to{" "}
+              ส่งคำเชิญปฏิทินทางอีเมล (จากคุณ) ไปยัง{" "}
               <span className="font-medium">{pendingRecipients.join(", ")}</span>
-              {notify ? "" : " — won't be sent"}
+              {notify ? "" : " — จะไม่ส่ง"}
             </span>
           </label>
         ) : (
           invitees.length > 0 && (
             <p className="mt-1 text-xs opacity-60">
-              No new invitees to email — everyone listed was already invited.
+              ไม่มีผู้ถูกเชิญใหม่ที่ต้องส่งอีเมล — ทุกคนในรายการถูกเชิญไปแล้ว
             </p>
           )
         )}
@@ -354,25 +354,25 @@ export default function SpotForm({
 
       <div className="grid grid-cols-2 gap-2">
         <label className="block text-sm">
-          <span className="opacity-70">Category</span>
+          <span className="opacity-70">หมวดหมู่</span>
           <input className={inputCls} value={category} onChange={(e) => setCategory(e.target.value)} />
         </label>
         <label className="block text-sm">
-          <span className="opacity-70">Status</span>
+          <span className="opacity-70">สถานะ</span>
           <select
             className={inputCls}
             value={status}
             onChange={(e) => setStatus(e.target.value as PlaceStatus)}
           >
-            <option value="planned">planned</option>
-            <option value="visited">visited</option>
-            <option value="cancelled">cancelled</option>
+            <option value="planned">วางแผนไว้</option>
+            <option value="visited">ไปแล้ว</option>
+            <option value="cancelled">ยกเลิก</option>
           </select>
         </label>
       </div>
 
       <label className="block text-sm">
-        <span className="opacity-70">Notes</span>
+        <span className="opacity-70">บันทึก</span>
         <textarea className={inputCls} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </label>
 
@@ -391,14 +391,14 @@ export default function SpotForm({
           disabled={busy}
           className="rounded-lg bg-pink-600 px-4 py-2 font-medium text-white disabled:opacity-50"
         >
-          {busy ? "Saving…" : initial ? "Save changes" : "Add spot"}
+          {busy ? "กำลังบันทึก…" : initial ? "บันทึกการเปลี่ยนแปลง" : "เพิ่มสถานที่"}
         </button>
         <button
           type="button"
           onClick={onCancel}
           className="rounded-lg border border-black/15 dark:border-white/25 px-4 py-2"
         >
-          Cancel
+          ยกเลิก
         </button>
       </div>
     </form>

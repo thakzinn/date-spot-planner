@@ -115,8 +115,8 @@ export default function MilestoneForm({
   function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (!title.trim()) return setError("Title is required.");
-    if (!localDate) return setError("A due date/time is required.");
+      if (!title.trim()) return setError("กรุณากรอกชื่อ milestone");
+      if (!localDate) return setError("กรุณาระบุวันครบกำหนด");
 
     const dueISO = localInputToISO(localDate);
     const checkpoints: Checkpoint[] = rows
@@ -137,7 +137,7 @@ export default function MilestoneForm({
     const lateForMs = checkpoints.find((c) => c.due_date && Date.parse(c.due_date) > msLimit);
     if (lateForMs) {
       return setError(
-        `Checkpoint “${lateForMs.title}” is after the milestone's due date (${formatBangkok(dueISO)}).`,
+        `Checkpoint “${lateForMs.title}” เกินวันครบกำหนดของ milestone นี้ (${formatBangkok(dueISO)})`,
       );
     }
 
@@ -145,11 +145,11 @@ export default function MilestoneForm({
     if (planDue) {
       const limit = Date.parse(planDue);
       if (Date.parse(dueISO) > limit) {
-        return setError(`Due must be on or before the plan's due date (${formatBangkok(planDue)}).`);
+        return setError(`วันครบกำหนดต้องไม่เกินวันครบกำหนดของแผน (${formatBangkok(planDue)})`);
       }
       const lateCp = checkpoints.find((c) => c.due_date && Date.parse(c.due_date) > limit);
       if (lateCp) {
-        return setError(`Checkpoint “${lateCp.title}” is after the plan's due date (${formatBangkok(planDue)}).`);
+        return setError(`Checkpoint “${lateCp.title}” เกินวันครบกำหนดของแผน (${formatBangkok(planDue)})`);
       }
     }
 
@@ -161,25 +161,25 @@ export default function MilestoneForm({
 
   return (
     <form onSubmit={submit} className="space-y-3">
-      <h3 className="font-semibold">{initial ? "Edit milestone" : "Add milestone"}</h3>
+      <h3 className="font-semibold">{initial ? "แก้ไข milestone" : "เพิ่ม milestone"}</h3>
 
       <label className="block text-sm">
-        <span className="opacity-70">Title (e.g. “บทที่ 1”)</span>
+        <span className="opacity-70">ชื่อ (เช่น “บทที่ 1”)</span>
         <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} />
       </label>
 
       <label className="block text-sm">
-        <span className="opacity-70">Due (Asia/Bangkok)</span>
+        <span className="opacity-70">ครบกำหนด (Asia/Bangkok)</span>
         <DateTimePicker value={localDate} onChange={setLocalDate} />
         {planDue && (
           <span className="mt-1 block text-xs opacity-60">
-            Plan due: {formatBangkok(planDue)} — must be on or before this.
+            แผนครบกำหนด: {formatBangkok(planDue)} — ต้องไม่เกินวันนี้
           </span>
         )}
       </label>
 
       <label className="block text-sm">
-        <span className="opacity-70">Notes (optional)</span>
+        <span className="opacity-70">บันทึก (ไม่บังคับ)</span>
         <textarea className={inputCls} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </label>
 
@@ -193,7 +193,7 @@ export default function MilestoneForm({
       )}
 
       <div className="text-sm">
-        <span className="opacity-70">Checkpoints (optional — each can have its own date)</span>
+        <span className="opacity-70">Checkpoint (ไม่บังคับ — แต่ละอันมีวันของตัวเองได้)</span>
         <div className="mt-1 space-y-2">
           {rows.map((row) => (
             <div key={row.id} className="rounded-lg border border-black/10 dark:border-white/15 p-2">
@@ -201,13 +201,13 @@ export default function MilestoneForm({
                 <input
                   className={inputCls}
                   value={row.title}
-                  placeholder="What needs doing"
+                  placeholder="สิ่งที่ต้องทำ"
                   onChange={(e) => updateRow(row.id, { title: e.target.value })}
                 />
                 <button
                   type="button"
                   onClick={() => removeRow(row.id)}
-                  aria-label="Remove checkpoint"
+                  aria-label="ลบ checkpoint"
                   className="shrink-0 rounded-lg border border-black/15 dark:border-white/25 px-2 py-2 text-sm"
                 >
                   ×
@@ -239,7 +239,7 @@ export default function MilestoneForm({
           onClick={addRow}
           className="mt-2 rounded-lg border border-black/15 dark:border-white/25 px-3 py-1.5 text-sm"
         >
-          + Add checkpoint
+          + เพิ่ม checkpoint
         </button>
       </div>
 
@@ -251,14 +251,14 @@ export default function MilestoneForm({
           disabled={busy}
           className="rounded-lg bg-pink-600 px-4 py-2 font-medium text-white disabled:opacity-50"
         >
-          {busy ? "Saving…" : initial ? "Save changes" : "Add milestone"}
+          {busy ? "กำลังบันทึก…" : initial ? "บันทึกการเปลี่ยนแปลง" : "เพิ่ม milestone"}
         </button>
         <button
           type="button"
           onClick={onCancel}
           className="rounded-lg border border-black/15 dark:border-white/25 px-4 py-2"
         >
-          Cancel
+          ยกเลิก
         </button>
       </div>
     </form>

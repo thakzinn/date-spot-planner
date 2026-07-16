@@ -34,7 +34,7 @@ export default function HomeView() {
       }
       const placesData = await placesRes.json();
       if (placesData.ok) setPlaces(placesData.places as Place[]);
-      else setError(placesData.error ?? "Failed to load");
+      else setError(placesData.error ?? "โหลดข้อมูลไม่สำเร็จ");
 
       // Plan stats are best-effort — a plans failure must not blank the spots half.
       const plansData = await plansRes.json().catch(() => null);
@@ -43,7 +43,7 @@ export default function HomeView() {
         setMilestones((plansData.milestones ?? []) as Milestone[]);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
+      setError(e instanceof Error ? e.message : "โหลดข้อมูลไม่สำเร็จ");
     } finally {
       setLoading(false);
     }
@@ -115,7 +115,25 @@ export default function HomeView() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-4">
       <div className="mx-auto max-w-4xl space-y-6">
-        <h1 className="text-lg font-semibold">หน้าหลัก</h1>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-lg font-semibold">หน้าหลัก</h1>
+          {/* Shortcuts to the two most common actions — skips the extra click
+              of navigating to a section first, then pressing its add button. */}
+          <div className="flex gap-2">
+            <Link
+              href="/spots?new=1"
+              className="rounded-lg bg-pink-600 px-3 py-1.5 text-sm font-medium text-white"
+            >
+              + เพิ่มสถานที่
+            </Link>
+            <Link
+              href="/plans?new=1"
+              className="rounded-lg border border-black/15 px-3 py-1.5 text-sm font-medium dark:border-white/25"
+            >
+              + แผนใหม่
+            </Link>
+          </div>
+        </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
 
           {/* Date spots */}

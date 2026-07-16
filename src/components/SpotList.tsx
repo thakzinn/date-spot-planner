@@ -9,6 +9,12 @@ function badgeCls(status: PlaceStatus): string {
   return "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300";
 }
 
+function statusLabel(status: PlaceStatus): string {
+  if (status === "visited") return "ไปแล้ว";
+  if (status === "cancelled") return "ยกเลิก";
+  return "วางแผนไว้";
+}
+
 export default function SpotList({
   places,
   onConfirm,
@@ -25,7 +31,7 @@ export default function SpotList({
   onDelete: (id: string) => void;
 }) {
   if (places.length === 0) {
-    return <p className="py-8 text-center text-sm opacity-60">No spots match this filter.</p>;
+    return <p className="py-8 text-center text-sm opacity-60">ไม่มีสถานที่ตรงกับตัวกรองนี้</p>;
   }
 
   return (
@@ -36,7 +42,7 @@ export default function SpotList({
             <div className="flex items-center gap-2">
               <span className="truncate font-medium">{p.place_name}</span>
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badgeCls(p.status)}`}>
-                {p.status}
+                {statusLabel(p.status)}
               </span>
             </div>
             <div className="text-sm opacity-70">{formatBangkok(p.planned_date)}</div>
@@ -46,7 +52,7 @@ export default function SpotList({
                 className="mt-0.5 truncate text-xs opacity-70"
                 title={p.invitees.join(", ")}
               >
-                👥 {p.invitees.length === 1 ? p.invitees[0] : `${p.invitees.length} invited`}
+                👥 {p.invitees.length === 1 ? p.invitees[0] : `เชิญ ${p.invitees.length} คน`}
               </div>
             )}
             {p.notes && <div className="mt-0.5 text-xs opacity-70">{p.notes}</div>}
@@ -57,7 +63,7 @@ export default function SpotList({
                 rel="noopener noreferrer"
                 className="text-xs text-blue-600 underline"
               >
-                Open in Maps
+                เปิดใน Maps
               </a>
             )}
           </div>
@@ -67,28 +73,28 @@ export default function SpotList({
                 onClick={() => onRevert(p.id)}
                 className="rounded-md bg-gray-200 px-2.5 py-1 text-xs font-medium dark:bg-gray-700"
               >
-                Mark planned
+                ยังไม่ไป
               </button>
             ) : (
               <button
                 onClick={() => onConfirm(p.id)}
                 className="rounded-md bg-green-600 px-2.5 py-1 text-xs font-medium text-white"
               >
-                Confirm visited
+                ยืนยันว่าไปแล้ว
               </button>
             )}
             <div className="flex items-center gap-2">
               <button onClick={() => onView(p)} className="px-2.5 py-1 text-xs underline opacity-70">
-                View
+                ดู
               </button>
               <button onClick={() => onEdit(p)} className="px-2.5 py-1 text-xs underline opacity-70">
-                Edit
+                แก้ไข
               </button>
               <button
                 onClick={() => onDelete(p.id)}
                 className="px-2.5 py-1 text-xs text-red-600 underline opacity-70"
               >
-                Delete
+                ลบ
               </button>
             </div>
           </div>

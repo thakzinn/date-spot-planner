@@ -46,7 +46,7 @@ export default function CollapsibleText({
           onClick={() => setExpanded((v) => !v)}
           className="mt-0.5 text-xs font-medium underline opacity-70 hover:opacity-100"
         >
-          {expanded ? "Show less" : "See more"}
+          {expanded ? "แสดงน้อยลง" : "ดูเพิ่มเติม"}
         </button>
       )}
     </div>

@@ -14,7 +14,7 @@ import {
 const CheckinMap = dynamic(() => import("./CheckinMap"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full items-center justify-center text-sm opacity-60">Loading map…</div>
+    <div className="flex h-full items-center justify-center text-sm opacity-60">กำลังโหลดแผนที่…</div>
   ),
 });
 
@@ -43,11 +43,11 @@ type GeoState =
 
 function geoErrorMessage(err: GeolocationPositionError): string {
   if (err.code === err.PERMISSION_DENIED)
-    return "Location access is blocked for this site.";
+    return "การเข้าถึงตำแหน่งถูกบล็อกสำหรับเว็บไซต์นี้";
   if (err.code === err.POSITION_UNAVAILABLE)
-    return "Your location is unavailable right now. Try again outdoors.";
-  if (err.code === err.TIMEOUT) return "Locating took too long. Try again.";
-  return "Couldn't read your location.";
+    return "ไม่สามารถระบุตำแหน่งของคุณได้ในตอนนี้ ลองใหม่ในที่โล่งแจ้ง";
+  if (err.code === err.TIMEOUT) return "ระบุตำแหน่งนานเกินไป ลองอีกครั้ง";
+  return "ไม่สามารถอ่านตำแหน่งของคุณได้";
 }
 
 export default function ConfirmVisit({ place }: { place: VisitPlace }) {
@@ -69,7 +69,7 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
   // coarse accuracy, which iPhones return far more reliably indoors.
   const locate = useCallback(() => {
     if (!("geolocation" in navigator)) {
-      setGeo({ kind: "error", message: "This device can't share its location.", denied: false });
+        setGeo({ kind: "error", message: "อุปกรณ์นี้ไม่สามารถแชร์ตำแหน่งได้", denied: false });
       return;
     }
     setGeo({ kind: "locating" });
@@ -107,16 +107,16 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
   function describeNotice(notice: NoticeResult | null | undefined): string {
     if (!notice) return "";
     if (notice.error === "no_gmail_grant")
-      return "Checked in. Couldn't notify others — sign in again to grant Gmail access.";
+        return "เช็คอินแล้ว แต่แจ้งเตือนคนอื่นไม่ได้ — เข้าสู่ระบบใหม่เพื่ออนุญาตให้ใช้ Gmail";
     const sent = notice.sent?.length ?? 0;
-    if (sent > 0) return `Notified ${sent} ${sent === 1 ? "person" : "people"} of your arrival.`;
-    if (notice.failed?.length) return "Checked in, but the arrival email failed to send.";
+      if (sent > 0) return `แจ้งเตือน ${sent} คนว่าคุณมาถึงแล้ว`;
+      if (notice.failed?.length) return "เช็คอินแล้ว แต่ส่งอีเมลแจ้งเตือนไม่สำเร็จ";
     return "";
   }
 
   async function submit(lat: number, lng: number) {
     setBusy(true);
-    showLoading("Checking in…");
+      showLoading("กำลังเช็คอิน…");
     try {
       const res = await fetch(`/api/places/${place.id}/confirm`, {
         method: "POST",
@@ -125,19 +125,19 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        showError(data.error ?? "Couldn't check in.");
+          showError(data.error ?? "เช็คอินไม่สำเร็จ");
         return;
       }
       setVisited(true);
       const msg = describeNotice(data.notice);
       await Swal.fire({
         icon: "success",
-        title: "Checked in",
+          title: "เช็คอินแล้ว",
         text: msg || place.place_name,
         confirmButtonColor: "#16a34a",
       });
     } catch (e) {
-      showError(e instanceof Error ? e.message : "Couldn't check in.");
+        showError(e instanceof Error ? e.message : "เช็คอินไม่สำเร็จ");
     } finally {
       setBusy(false);
     }
@@ -153,13 +153,13 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
     if (distance !== null && distance > CONFIRM_DISTANCE_THRESHOLD_M) {
       const ok = await Swal.fire({
         icon: "warning",
-        title: "You're a bit far away",
-        html: `You appear to be <b>${formatDistance(distance)}</b> from <b>${escapeHtml(
+          title: "คุณอยู่ค่อนข้างไกล",
+          html: `ดูเหมือนคุณอยู่ห่างจาก <b>${escapeHtml(
           place.place_name,
-        )}</b>.<br/>Check in anyway?`,
+          )}</b> ประมาณ <b>${formatDistance(distance)}</b><br/>ยืนยันเช็คอินต่อไหม?`,
         showCancelButton: true,
-        confirmButtonText: "Check in anyway",
-        cancelButtonText: "Cancel",
+          confirmButtonText: "เช็คอินเลย",
+          cancelButtonText: "ยกเลิก",
         confirmButtonColor: "#db2777",
       });
       if (!ok.isConfirmed) return;
@@ -170,10 +170,10 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
   const near = distance !== null && distance <= CONFIRM_DISTANCE_THRESHOLD_M;
   const ready = geo.kind === "ok";
   const buttonLabel = ready
-    ? "Check in & notify"
+      ? "เช็คอิน & แจ้งเตือน"
     : geo.kind === "locating"
-      ? "Getting your location…"
-      : "Share my location to check in";
+        ? "กำลังระบุตำแหน่งของคุณ…"
+        : "แชร์ตำแหน่งเพื่อเช็คอิน";
 
   return (
     <main className="flex flex-1 items-center justify-center p-4">
@@ -189,16 +189,16 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
 
         {visited ? (
           <div className="rounded-lg bg-green-50 px-3 py-4 text-center text-green-800 dark:bg-green-900/30 dark:text-green-200">
-            <div className="text-lg font-medium">✅ Checked in</div>
-            <p className="text-sm opacity-80">Enjoy your date!</p>
+            <div className="text-lg font-medium">✅ เช็คอินแล้ว</div>
+            <p className="text-sm opacity-80">ขอให้สนุกกับเดตนี้!</p>
           </div>
         ) : (
           <>
             <div className="rounded-lg border border-black/10 dark:border-white/15 p-3 text-sm">
-              {geo.kind === "locating" && <p className="opacity-70">📍 Getting your location…</p>}
+              {geo.kind === "locating" && <p className="opacity-70">📍 กำลังระบุตำแหน่งของคุณ…</p>}
               {geo.kind === "idle" && (
                 <p className="opacity-70">
-                  📍 Tap below to share your location and check in.
+                  📍 แตะด้านล่างเพื่อแชร์ตำแหน่งและเช็คอิน
                 </p>
               )}
               {geo.kind === "error" && (
@@ -206,15 +206,15 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
                   <p className="text-red-600">{geo.message}</p>
                   {geo.denied && (
                     <div className="text-xs opacity-70">
-                      <p>To allow it on iPhone:</p>
-                      <p>• Tap the “aA” in the address bar → Website Settings → Location → Allow.</p>
-                      <p>• Or open Settings → Apps → Safari → Location.</p>
-                      <p className="mt-1">Then reload this page.</p>
+                      <p>วิธีอนุญาตบน iPhone:</p>
+                      <p>• แตะ “aA” ในแถบที่อยู่ → Website Settings → Location → Allow</p>
+                      <p>• หรือเปิด Settings → Apps → Safari → Location</p>
+                      <p className="mt-1">แล้วโหลดหน้านี้ใหม่</p>
                       <button
                         onClick={() => window.location.reload()}
                         className="mt-1 underline opacity-80"
                       >
-                        Reload
+                        โหลดใหม่
                       </button>
                     </div>
                   )}
@@ -224,22 +224,22 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
                 <div className="space-y-1">
                   {!hasPin ? (
                     <p className="opacity-70">
-                      This spot has no pinned coordinates — you can still check in.
+                      สถานที่นี้ยังไม่ได้ปักหมุดพิกัด — คุณยังเช็คอินได้
                     </p>
                   ) : (
                     <>
                       <p>
-                        Distance to spot:{" "}
+                        ระยะห่างจากสถานที่:{" "}
                         <span className={`font-semibold ${near ? "text-green-600" : "text-amber-600"}`}>
                           {formatDistance(distance!)}
                         </span>
                       </p>
                       <p className="text-xs opacity-60">
                         {near
-                          ? "You're here 🎉"
-                          : `More than ${CONFIRM_DISTANCE_THRESHOLD_M} m away — we'll double-check before checking in.`}
+                          ? "คุณอยู่ที่นี่แล้ว 🎉"
+                          : `ห่างเกิน ${CONFIRM_DISTANCE_THRESHOLD_M} ม. — เราจะให้คุณยืนยันอีกครั้งก่อนเช็คอิน`}
                       </p>
-                      <p className="text-xs opacity-50">±{Math.round(geo.accuracy)} m accuracy</p>
+                      <p className="text-xs opacity-50">ความแม่นยำ ±{Math.round(geo.accuracy)} ม.</p>
                     </>
                   )}
                 </div>
@@ -261,7 +261,7 @@ export default function ConfirmVisit({ place }: { place: VisitPlace }) {
                 rel="noopener noreferrer"
                 className="block text-center text-sm text-blue-600 underline"
               >
-                Open spot in Maps
+                เปิดสถานที่ใน Maps
               </a>
             )}
           </>

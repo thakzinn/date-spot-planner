@@ -22,10 +22,10 @@ function milestoneState(due: string, done: boolean): MilestoneState {
 }
 
 const STATE_PILL: Record<MilestoneState, { label: string; cls: string }> = {
-  done: { label: "done", cls: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200" },
-  overdue: { label: "overdue", cls: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200" },
-  today: { label: "due today", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200" },
-  upcoming: { label: "upcoming", cls: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200" },
+  done: { label: "เสร็จแล้ว", cls: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200" },
+  overdue: { label: "เลยกำหนด", cls: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200" },
+  today: { label: "ครบกำหนดวันนี้", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200" },
+  upcoming: { label: "กำลังจะถึง", cls: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200" },
 };
 
 // Colour of the timeline point (the dot on the track) per state.
@@ -273,7 +273,7 @@ export default function TimelineView({
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        showError(data.error ?? "Update failed");
+        showError(data.error ?? "อัปเดตไม่สำเร็จ");
         return null;
       }
       const updated = data.milestone as Milestone;
@@ -281,7 +281,7 @@ export default function TimelineView({
       showSuccess(ok);
       return updated;
     } catch (e) {
-      showError(e instanceof Error ? e.message : "Update failed");
+      showError(e instanceof Error ? e.message : "อัปเดตไม่สำเร็จ");
       return null;
     } finally {
       setBusy(false);
@@ -290,7 +290,7 @@ export default function TimelineView({
 
   async function onSaveMilestone(payload: MilestonePayload, id: string | null) {
     setBusy(true);
-    showLoading(id ? "Saving milestone…" : "Adding milestone…");
+    showLoading(id ? "กำลังบันทึก milestone…" : "กำลังเพิ่ม milestone…");
     try {
       const url = id ? `/api/milestones/${id}` : `/api/plans/${plan.id}/milestones`;
       const res = await fetch(url, {
@@ -300,25 +300,25 @@ export default function TimelineView({
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        showError(data.error ?? "Save failed");
+        showError(data.error ?? "บันทึกไม่สำเร็จ");
         return;
       }
       onMilestoneUpsert(data.milestone as Milestone);
       setShowForm(false);
       setEditing(null);
-      showSuccess(id ? "Milestone saved" : "Milestone added");
+      showSuccess(id ? "บันทึก milestone แล้ว" : "เพิ่ม milestone แล้ว");
     } catch (e) {
-      showError(e instanceof Error ? e.message : "Save failed");
+      showError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
     } finally {
       setBusy(false);
     }
   }
 
   function confirm(m: Milestone) {
-    mutate(m.id, { action: "confirm", notify: notifyMembers }, "Confirming…", "Marked done");
+    mutate(m.id, { action: "confirm", notify: notifyMembers }, "กำลังยืนยัน…", "ทำเครื่องหมายว่าเสร็จแล้ว");
   }
   function reopen(m: Milestone) {
-    mutate(m.id, { action: "reopen" }, "Reopening…", "Reopened");
+    mutate(m.id, { action: "reopen" }, "กำลังเปิดใหม่…", "เปิดใหม่แล้ว");
   }
   function extendBy(m: Milestone, days: number) {
     const base = Date.parse(m.due_date);
@@ -326,17 +326,17 @@ export default function TimelineView({
     const next = nowBangkokISO(new Date(base + days * 86_400_000));
     // Don't let a quick-extend push a milestone past the plan's overall due.
     if (plan.due_date && Date.parse(next) > Date.parse(plan.due_date)) {
-      showError(`Can't extend past the plan due date (${formatBangkok(plan.due_date)}). Extend the plan first.`);
+      showError(`เลื่อนเกินวันครบกำหนดของแผนไม่ได้ (${formatBangkok(plan.due_date)}) กรุณาเลื่อนแผนก่อน`);
       return;
     }
-    mutate(m.id, { action: "extend", due_date: next, notify: notifyMembers }, "Extending…", "Due date moved");
+    mutate(m.id, { action: "extend", due_date: next, notify: notifyMembers }, "กำลังเลื่อน…", "เลื่อนวันครบกำหนดแล้ว");
   }
   async function toggleCheckpoint(m: Milestone, checkpointId: string) {
     const updated = await mutate(
       m.id,
       { action: "checkpoint", op: "toggle", checkpoint: { id: checkpointId } },
-      "Updating…",
-      "Updated",
+      "กำลังอัปเดต…",
+      "อัปเดตแล้ว",
     );
     if (!updated) return;
     const allChecked =
@@ -360,43 +360,43 @@ export default function TimelineView({
     const next = nowBangkokISO(new Date(base + days * 86_400_000));
     // A checkpoint is a step toward its milestone — it can't fall due after it.
     if (m.due_date && Date.parse(next) > Date.parse(m.due_date)) {
-      showError(`Can't move past the milestone due date (${formatBangkok(m.due_date)}). Extend the milestone first.`);
+        showError(`เลื่อนเกินวันครบกำหนดของ milestone ไม่ได้ (${formatBangkok(m.due_date)}) กรุณาเลื่อน milestone ก่อน`);
       return;
     }
     if (plan.due_date && Date.parse(next) > Date.parse(plan.due_date)) {
-      showError(`Can't move past the plan due date (${formatBangkok(plan.due_date)}). Extend the plan first.`);
+        showError(`เลื่อนเกินวันครบกำหนดของแผนไม่ได้ (${formatBangkok(plan.due_date)}) กรุณาเลื่อนแผนก่อน`);
       return;
     }
     mutate(
       m.id,
       { action: "checkpoint", op: "edit", checkpoint: { id: c.id, due_date: next } },
-      "Moving…",
-      "Date moved",
+        "กำลังเลื่อน…",
+        "เลื่อนวันที่แล้ว",
     );
   }
 
   async function onDelete(m: Milestone) {
     const c = await Swal.fire({
-      title: "Delete this milestone?",
-      text: "It will be removed from the timeline and calendar.",
+        title: "ลบ milestone นี้?",
+        text: "จะถูกลบออกจากไทม์ไลน์และปฏิทิน",
       icon: "warning",
       showCancelButton: true,
-      confirmButtonText: "Delete",
+        confirmButtonText: "ลบ",
       confirmButtonColor: "#dc2626",
     });
     if (!c.isConfirmed) return;
-    showLoading("Deleting…");
+      showLoading("กำลังลบ…");
     try {
       const res = await fetch(`/api/milestones/${m.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        showError(data.error ?? "Delete failed");
+          showError(data.error ?? "ลบไม่สำเร็จ");
         return;
       }
       onMilestoneRemove(m.id);
-      showSuccess("Milestone deleted");
+        showSuccess("ลบ milestone แล้ว");
     } catch (e) {
-      showError(e instanceof Error ? e.message : "Delete failed");
+        showError(e instanceof Error ? e.message : "ลบไม่สำเร็จ");
     }
   }
 
@@ -405,7 +405,7 @@ export default function TimelineView({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <button onClick={onBack} className="text-sm underline opacity-70">
-            ‹ All plans
+            ‹ แผนทั้งหมด
           </button>
           <h2 className="text-lg font-semibold">{plan.title}</h2>
           {plan.description && (
@@ -422,8 +422,8 @@ export default function TimelineView({
           )}
           {(summary.overdue > 0 || summary.today > 0) && (
             <p className="mt-1 text-sm">
-              {summary.overdue > 0 && <span className="mr-2 text-red-600">⚠️ {summary.overdue} overdue</span>}
-              {summary.today > 0 && <span className="text-amber-600">🔔 {summary.today} due today</span>}
+              {summary.overdue > 0 && <span className="mr-2 text-red-600">⚠️ เลยกำหนด {summary.overdue}</span>}
+              {summary.today > 0 && <span className="text-amber-600">🔔 ครบกำหนดวันนี้ {summary.today}</span>}
             </p>
           )}
         </div>
@@ -431,14 +431,14 @@ export default function TimelineView({
           {plan.invitees.length > 0 && (
             <label className="flex items-center gap-1 text-xs opacity-70">
               <input type="checkbox" checked={notifyMembers} onChange={(e) => setNotifyMembers(e.target.checked)} />
-              Email members on changes
+              ส่งอีเมลแจ้งสมาชิกเมื่อมีการเปลี่ยนแปลง
             </label>
           )}
           {isOwner && (
             <button onClick={onEditPlan} className="rounded-lg border border-black/15 dark:border-white/25 px-3 py-1.5 text-sm">
-              Edit plan
+              แก้ไขแผน
             </button>
-          )}‹ All plans
+          )}
           <button
             onClick={() => {
               setEditing(null);
@@ -446,7 +446,7 @@ export default function TimelineView({
             }}
             className="rounded-lg bg-pink-600 px-3 py-1.5 text-sm font-medium text-white"
           >
-            + Add milestone
+            + เพิ่ม milestone
           </button>
         </div>
       </div>
@@ -470,7 +470,7 @@ export default function TimelineView({
 
       {ordered.length === 0 ? (
         <p className="py-8 text-center text-sm opacity-60">
-          No milestones yet. Add the first one (e.g. “บทที่ 1”).
+          ยังไม่มี milestone เพิ่มอันแรก (เช่น “บทที่ 1”)
         </p>
       ) : (
         // Vertical timeline: a track line on the left, a coloured point per
@@ -523,7 +523,7 @@ export default function TimelineView({
                     <Countdown due={m.due_date} done={m.status === "done"} />
                     {m.status === "done" && m.done_at && (
                       <span className="text-xs text-green-600">
-                        ✓ เสร็จ {formatBangkok(m.done_at)}{early ? " · early" : ""}
+                        ✓ เสร็จ {formatBangkok(m.done_at)}{early ? " · ก่อนกำหนด" : ""}
                       </span>
                     )}
                   </div>
@@ -538,7 +538,7 @@ export default function TimelineView({
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {m.status === "done" ? (
                       <button onClick={() => reopen(m)} disabled={busy} className={btnGhost}>
-                        Reopen
+                        เปิดใหม่
                       </button>
                     ) : (
                       <>
@@ -547,18 +547,18 @@ export default function TimelineView({
                           disabled={busy}
                           title={
                             doneCount < m.checkpoints.length
-                              ? "Confirms this and ticks off all remaining checkpoints"
+                              ? "ยืนยันว่าเสร็จ และเช็คถูก checkpoint ที่เหลือทั้งหมด"
                               : undefined
                           }
                           className={btnPrimary}
                         >
-                          ✓ Confirm done
+                          ✓ ยืนยันเสร็จ
                         </button>
                         <button onClick={() => extendBy(m, 1)} disabled={busy} className={btnGhost}>
-                          +1 day
+                          +1 วัน
                         </button>
                         <button onClick={() => extendBy(m, 7)} disabled={busy} className={btnGhost}>
-                          +1 week
+                          +1 สัปดาห์
                         </button>
                       </>
                     )}
@@ -569,10 +569,10 @@ export default function TimelineView({
                       }}
                       className={btnGhost}
                     >
-                      Edit
+                      แก้ไข
                     </button>
                     <button onClick={() => onDelete(m)} className={btnGhost}>
-                      Delete
+                      ลบ
                     </button>
                   </div>
 
@@ -607,23 +607,23 @@ export default function TimelineView({
                             <div className="ms-6 mt-1 flex flex-wrap items-center gap-1.5">
                               <span className="text-xs opacity-50">ปรับวันที่:</span>
                               <button onClick={() => shiftCheckpoint(m, c, -7)} disabled={busy} className={btnGhost}>
-                                -1 week
+                                  -1 สัปดาห์
                               </button>
                               <button onClick={() => shiftCheckpoint(m, c, -1)} disabled={busy} className={btnGhost}>
-                                -1 day
+                                  -1 วัน
                               </button>
                               <button onClick={() => shiftCheckpoint(m, c, 1)} disabled={busy} className={btnGhost}>
-                                +1 day
+                                  +1 วัน
                               </button>
                               <button onClick={() => shiftCheckpoint(m, c, 7)} disabled={busy} className={btnGhost}>
-                                +1 week
+                                  +1 สัปดาห์
                               </button>
                             </div>
                           )}
                         </li>
                       ))}
                       <li className="pt-1 text-xs opacity-50">
-                        {doneCount}/{m.checkpoints.length} checkpoints done
+                        {doneCount}/{m.checkpoints.length} checkpoint เสร็จแล้ว
                       </li>
                     </ul>
                   )}
@@ -660,7 +660,7 @@ export default function TimelineView({
 
                 <div className="rounded-xl border border-pink-500/30 bg-pink-50 p-3 shadow-sm dark:border-pink-400/25 dark:bg-pink-950/20">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">🎯 Plan due</span>
+                    <span className="font-medium">🎯 กำหนดของแผน</span>
                     <span className={`rounded-full px-2 py-0.5 text-xs ${STATE_PILL[state].cls}`}>
                       {STATE_PILL[state].label}
                     </span>

@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const WEEKDAYS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
 const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
+  "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
 ];
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -133,7 +133,7 @@ export default function DateTimePicker({
                 type="button"
                 onClick={() => shiftMonth(-1)}
                 className="rounded-md px-2 py-1 hover:bg-black/5 dark:hover:bg-white/10"
-                aria-label="Previous month"
+                aria-label="เดือนก่อนหน้า"
               >
                 ‹
               </button>
@@ -144,7 +144,7 @@ export default function DateTimePicker({
                 type="button"
                 onClick={() => shiftMonth(1)}
                 className="rounded-md px-2 py-1 hover:bg-black/5 dark:hover:bg-white/10"
-                aria-label="Next month"
+                aria-label="เดือนถัดไป"
               >
                 ›
               </button>

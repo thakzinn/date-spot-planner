@@ -121,19 +121,47 @@ export default function AppShell({
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile top bar with the drawer toggle */}
+        {/* Mobile top bar: brand + hamburger for secondary items (notifications,
+            calendar links, log out). Primary navigation lives in the bottom
+            tab bar below, so it's reachable with one thumb. */}
         <div className="flex shrink-0 items-center gap-2 border-b border-black/10 px-3 py-2 sm:hidden dark:border-white/10">
+          <span className="flex-1 text-sm font-semibold">💕 Date Spot Planner</span>
           <button
             onClick={() => setOpen(true)}
-            aria-label="เปิดเมนู"
+            aria-label="เปิดเมนูเพิ่มเติม"
             className="rounded-lg px-2 py-1 text-lg hover:bg-black/5 dark:hover:bg-white/10"
           >
             ☰
           </button>
-          <span className="text-sm font-semibold">Date Spot Planner</span>
         </div>
 
-        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</main>
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden pb-16 sm:pb-0">{children}</main>
+
+        {/* Mobile: fixed bottom tab bar for one-thumb navigation between the
+            3 main sections. Secondary actions stay in the hamburger drawer. */}
+        <nav
+          className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 border-t border-black/10 bg-white pb-[env(safe-area-inset-bottom)] sm:hidden dark:border-white/10 dark:bg-[#0a0a0a]"
+          aria-label="เมนูหลัก"
+        >
+          {NAV.map((item) => {
+            const active =
+              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex flex-col items-center gap-0.5 py-2 text-[11px] transition ${
+                  active ? "text-pink-600 dark:text-pink-400" : "opacity-60"
+                }`}
+              >
+                <span className="text-lg" aria-hidden>
+                  {item.icon}
+                </span>
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
       </div>
     </div>
   );

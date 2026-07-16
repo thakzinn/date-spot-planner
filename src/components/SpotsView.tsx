@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
 import type { Place } from "@/lib/places";
 import { formatBangkok } from "@/lib/format";
@@ -18,17 +18,18 @@ type SpotPeriod = "current" | "past" | "all";
 const MapView = dynamic(() => import("./MapView"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full items-center justify-center text-sm opacity-60">Loading map…</div>
+    <div className="flex h-full items-center justify-center text-sm opacity-60">กำลังโหลดแผนที่…</div>
   ),
 });
 
 export default function SpotsView({ userEmail }: { userEmail: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [places, setPlaces] = useState<Place[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm] = useState(() => searchParams.get("new") === "1");
   const [editing, setEditing] = useState<Place | null>(null);
   const [busy, setBusy] = useState(false);
   // Who owns the spot (Me / Invited / All) and where it sits in time
@@ -52,9 +53,9 @@ export default function SpotsView({ userEmail }: { userEmail: string }) {
       }
       const data = await res.json();
       if (data.ok) setPlaces(data.places as Place[]);
-      else setError(data.error ?? "Failed to load");
+      else setError(data.error ?? "โหลดข้อมูลไม่สำเร็จ");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
+      setError(e instanceof Error ? e.message : "โหลดข้อมูลไม่สำเร็จ");
     } finally {
       setLoading(false);
     }
@@ -63,6 +64,15 @@ export default function SpotsView({ userEmail }: { userEmail: string }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // A shortcut (e.g. from the home dashboard) can deep-link straight into the
+  // add form via ?new=1 (opened via the lazy state init above); strip the
+  // param afterwards so a refresh doesn't reopen it.
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      router.replace("/spots");
+    }
+  }, [searchParams, router]);
 
   // A spot is "ours" when we created it; otherwise we only see it via an invite.
   const me = userEmail.trim().toLowerCase();
@@ -99,7 +109,7 @@ export default function SpotsView({ userEmail }: { userEmail: string }) {
     setBusy(true);
     setError("");
     setNotice("");
-    showLoading(id ? "Saving changes…" : "Adding spot…");
+      showLoading(id ? "กำลังบันทึกการเปลี่ยนแปลง…" : "กำลังเพิ่มสถานที่…");
     try {
       const res = await fetch(id ? `/api/places/${id}` : "/api/places", {
         method: id ? "PUT" : "POST",
@@ -108,17 +118,17 @@ export default function SpotsView({ userEmail }: { userEmail: string }) {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        setError(data.error ?? "Save failed");
-        showError(data.error ?? "Save failed");
+          setError(data.error ?? "บันทึกไม่สำเร็จ");
+          showError(data.error ?? "บันทึกไม่สำเร็จ");
         return;
       }
       upsertLocal(data.place as Place);
       setNotice(describeInvite(data.invite));
       setShowForm(false);
       setEditing(null);
-      showSuccess(id ? "Changes saved" : "Spot added");
+        showSuccess(id ? "บันทึกการเปลี่ยนแปลงแล้ว" : "เพิ่มสถานที่แล้ว");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Save failed";
+        const msg = e instanceof Error ? e.message : "บันทึกไม่สำเร็จ";
       setError(msg);
       showError(msg);
     } finally {
@@ -128,7 +138,7 @@ export default function SpotsView({ userEmail }: { userEmail: string }) {
 
   async function setVisited(id: string, action: "visit" | "unvisit") {
     setError("");
-    showLoading("Updating…");
+      showLoading("กำลังอัปเดต…");
     try {
       const res = await fetch(`/api/places/${id}`, {
         method: "PUT",
@@ -137,14 +147,14 @@ export default function SpotsView({ userEmail }: { userEmail: string }) {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        setError(data.error ?? "Update failed");
-        showError(data.error ?? "Update failed");
+          setError(data.error ?? "อัปเดตไม่สำเร็จ");
+          showError(data.error ?? "อัปเดตไม่สำเร็จ");
         return;
       }
       upsertLocal(data.place as Place);
-      showSuccess(action === "visit" ? "Marked visited" : "Marked planned");
+        showSuccess(action === "visit" ? "ทำเครื่องหมายว่าไปแล้ว" : "ทำเครื่องหมายว่ายังไม่ไป");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Update failed";
+        const msg = e instanceof Error ? e.message : "อัปเดตไม่สำเร็จ";
       setError(msg);
       showError(msg);
     }
@@ -154,36 +164,36 @@ export default function SpotsView({ userEmail }: { userEmail: string }) {
     Swal.fire({
       title: esc(p.place_name),
       html: detailsHtml(p),
-      confirmButtonText: "Close",
+      confirmButtonText: "ปิด",
       confirmButtonColor: "#db2777",
     });
   }
 
   async function onDelete(id: string) {
     const confirmed = await Swal.fire({
-      title: "Delete this spot?",
-      text: "It will be hidden from your list and calendar.",
+      title: "ลบสถานที่นี้?",
+      text: "จะถูกซ่อนจากรายการและปฏิทินของคุณ",
       icon: "warning",
       showCancelButton: true,
-      confirmButtonText: "Delete",
-      cancelButtonText: "Cancel",
+      confirmButtonText: "ลบ",
+      cancelButtonText: "ยกเลิก",
       confirmButtonColor: "#dc2626",
     });
     if (!confirmed.isConfirmed) return;
     setError("");
-    showLoading("Deleting…");
+    showLoading("กำลังลบ…");
     try {
       const res = await fetch(`/api/places/${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        setError(data.error ?? "Delete failed");
-        showError(data.error ?? "Delete failed");
+        setError(data.error ?? "ลบไม่สำเร็จ");
+        showError(data.error ?? "ลบไม่สำเร็จ");
         return;
       }
       setPlaces((prev) => prev.filter((p) => p.id !== id));
-      showSuccess("Spot deleted");
+      showSuccess("ลบสถานที่แล้ว");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Delete failed";
+      const msg = e instanceof Error ? e.message : "ลบไม่สำเร็จ";
       setError(msg);
       showError(msg);
     }
@@ -210,9 +220,9 @@ export default function SpotsView({ userEmail }: { userEmail: string }) {
                 value={scope}
                 onChange={setScope}
                 options={[
-                  { value: "me", label: "Me" },
-                  { value: "invited", label: "Invited" },
-                  { value: "all", label: "All" },
+                  { value: "me", label: "ของฉัน" },
+                  { value: "invited", label: "ถูกเชิญ" },
+                  { value: "all", label: "ทั้งหมด" },
                 ]}
               />
               <span className="opacity-30">·</span>
@@ -220,9 +230,9 @@ export default function SpotsView({ userEmail }: { userEmail: string }) {
                 value={period}
                 onChange={setPeriod}
                 options={[
-                  { value: "current", label: "Current" },
-                  { value: "past", label: "Past" },
-                  { value: "all", label: "All" },
+                  { value: "current", label: "ปัจจุบัน" },
+                  { value: "past", label: "ผ่านมาแล้ว" },
+                  { value: "all", label: "ทั้งหมด" },
                 ]}
               />
             </div>
@@ -234,7 +244,7 @@ export default function SpotsView({ userEmail }: { userEmail: string }) {
               <span>{notice}</span>
               <button
                 onClick={() => setNotice("")}
-                aria-label="Dismiss"
+                aria-label="ปิด"
                 className="shrink-0 opacity-60 hover:opacity-100"
               >
                 ×
@@ -261,7 +271,7 @@ export default function SpotsView({ userEmail }: { userEmail: string }) {
           )}
 
           {loading ? (
-            <p className="py-8 text-center text-sm opacity-60">Loading…</p>
+            <p className="py-8 text-center text-sm opacity-60">กำลังโหลด…</p>
           ) : (
             <SpotList
               places={displayed}
@@ -302,14 +312,14 @@ function describeInvite(invite: InviteResult | null | undefined): string {
   if (!invite) return "";
   const sent = invite.sent?.length ?? 0;
   if (invite.error === "no_gmail_grant") {
-    return "Spot saved, but invites couldn't be sent — log out and sign in again to grant Gmail access, then re-add the invitee.";
+    return "บันทึกสถานที่แล้ว แต่ส่งคำเชิญไม่สำเร็จ — ออกจากระบบแล้วเข้าใหม่เพื่ออนุญาตให้ใช้ Gmail จากนั้นเพิ่มผู้ถูกเชิญอีกครั้ง";
   }
   if (invite.failed?.length && sent === 0) {
-    return "Spot saved, but the invite email failed to send. Try editing the spot to retry.";
+    return "บันทึกสถานที่แล้ว แต่ส่งอีเมลคำเชิญไม่สำเร็จ ลองแก้ไขสถานที่เพื่อส่งใหม่";
   }
   if (sent > 0) {
-    const partial = invite.failed?.length ? ` (${invite.failed.length} failed)` : "";
-    return `Invite emailed to ${sent} ${sent === 1 ? "person" : "people"}${partial}.`;
+    const partial = invite.failed?.length ? ` (ส่งไม่สำเร็จ ${invite.failed.length} คน)` : "";
+    return `ส่งคำเชิญให้ ${sent} คนแล้ว${partial}`;
   }
   return "";
 }
@@ -324,13 +334,13 @@ function esc(s: string): string {
 // Build the read-only details body for the View modal.
 function detailsHtml(p: Place): string {
   const rows: Array<[string, string]> = [
-    ["Status", p.status],
-    ["When", formatBangkok(p.planned_date)],
+    ["สถานะ", p.status === "visited" ? "ไปแล้ว" : p.status === "cancelled" ? "ยกเลิก" : "วางแผนไว้"],
+    ["วันเวลา", formatBangkok(p.planned_date)],
   ];
-  if (p.category) rows.push(["Category", p.category]);
-  if (p.invitees.length > 0) rows.push(["Invitees", p.invitees.join(", ")]);
-  if (p.notes) rows.push(["Notes", p.notes]);
-  if (p.status === "visited" && p.visited_at) rows.push(["Visited", formatBangkok(p.visited_at)]);
+  if (p.category) rows.push(["หมวดหมู่", p.category]);
+  if (p.invitees.length > 0) rows.push(["ผู้ถูกเชิญ", p.invitees.join(", ")]);
+  if (p.notes) rows.push(["บันทึก", p.notes]);
+  if (p.status === "visited" && p.visited_at) rows.push(["ไปเมื่อ", formatBangkok(p.visited_at)]);
 
   const list = rows
     .map(
@@ -340,7 +350,7 @@ function detailsHtml(p: Place): string {
     .join("");
 
   const maps = p.maps_url
-    ? `<div style="margin-top:10px"><a href="${esc(p.maps_url)}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline">Open in Maps</a></div>`
+    ? `<div style="margin-top:10px"><a href="${esc(p.maps_url)}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline">เปิดใน Maps</a></div>`
     : "";
 
   return `<div style="text-align:left;font-size:14px">${list}${maps}</div>`;

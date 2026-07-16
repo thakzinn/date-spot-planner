@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Swal, showLoading, showSuccess, showError } from "@/lib/swal";
 import { isGmail, type Milestone, type Plan } from "@/lib/plans";
 import { bangkokDateStr, isTodayBangkok } from "@/lib/dates";
@@ -28,13 +28,14 @@ export default function PlansView({
   userName?: string;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showPlanForm, setShowPlanForm] = useState(false);
+  const [showPlanForm, setShowPlanForm] = useState(() => searchParams.get("new") === "1");
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   // Who owns the plan (Me / Invited / All) and where it sits in time
   // (Current = active & not past due, Past = done/archived or overdue).
@@ -52,14 +53,14 @@ export default function PlansView({
       }
       const data = await res.json();
       if (!data.ok) {
-        setError(data.error ?? "Failed to load");
+        setError(data.error ?? "โหลดข้อมูลไม่สำเร็จ");
         return;
       }
       setPlans(data.plans as Plan[]);
       setMilestones((data.milestones ?? []) as Milestone[]);
       announceDue((data.milestones ?? []) as Milestone[]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
+      setError(e instanceof Error ? e.message : "โหลดข้อมูลไม่สำเร็จ");
     } finally {
       setLoading(false);
     }
@@ -68,6 +69,15 @@ export default function PlansView({
   useEffect(() => {
     load();
   }, [load]);
+
+  // A shortcut (e.g. from the home dashboard) can deep-link straight into the
+  // add form via ?new=1 (opened via the lazy state init above); strip the
+  // param afterwards so a refresh doesn't reopen it.
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      router.replace("/plans");
+    }
+  }, [searchParams, router]);
 
   const milestonesByPlan = useMemo(() => {
     const map = new Map<string, Milestone[]>();
@@ -125,7 +135,7 @@ export default function PlansView({
 
   async function savePlan(payload: PlanPayload, id: string | null) {
     setBusy(true);
-    showLoading(id ? "Saving plan…" : "Creating plan…");
+      showLoading(id ? "กำลังบันทึกแผน…" : "กำลังสร้างแผน…");
     try {
       const res = await fetch(id ? `/api/plans/${id}` : "/api/plans", {
         method: id ? "PUT" : "POST",
@@ -134,15 +144,15 @@ export default function PlansView({
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        showError(data.error ?? "Save failed");
+          showError(data.error ?? "บันทึกไม่สำเร็จ");
         return;
       }
       upsertPlan(data.plan as Plan);
       setShowPlanForm(false);
       setEditingPlan(null);
-      showSuccess(id ? "Plan saved" : "Plan created");
+        showSuccess(id ? "บันทึกแผนแล้ว" : "สร้างแผนแล้ว");
     } catch (e) {
-      showError(e instanceof Error ? e.message : "Save failed");
+        showError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
     } finally {
       setBusy(false);
     }
@@ -150,28 +160,28 @@ export default function PlansView({
 
   async function deletePlan(p: Plan) {
     const c = await Swal.fire({
-      title: "Delete this plan?",
-      text: "The plan and all its milestones will be hidden from your list and calendar.",
+        title: "ลบแผนนี้?",
+        text: "แผนและ milestone ทั้งหมดจะถูกซ่อนจากรายการและปฏิทินของคุณ",
       icon: "warning",
       showCancelButton: true,
-      confirmButtonText: "Delete",
+        confirmButtonText: "ลบ",
       confirmButtonColor: "#dc2626",
     });
     if (!c.isConfirmed) return;
-    showLoading("Deleting…");
+      showLoading("กำลังลบ…");
     try {
       const res = await fetch(`/api/plans/${p.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        showError(data.error ?? "Delete failed");
+          showError(data.error ?? "ลบไม่สำเร็จ");
         return;
       }
       setPlans((prev) => prev.filter((x) => x.id !== p.id));
       setMilestones((prev) => prev.filter((m) => m.plan_id !== p.id));
       if (selectedId === p.id) setSelectedId(null);
-      showSuccess("Plan deleted");
+        showSuccess("ลบแผนแล้ว");
     } catch (e) {
-      showError(e instanceof Error ? e.message : "Delete failed");
+        showError(e instanceof Error ? e.message : "ลบไม่สำเร็จ");
     }
   }
 
@@ -210,7 +220,7 @@ export default function PlansView({
       )}
 
       {loading ? (
-        <p className="py-8 text-center text-sm opacity-60">Loading…</p>
+        <p className="py-8 text-center text-sm opacity-60">กำลังโหลด…</p>
       ) : selected ? (
         <TimelineView
           plan={selected}
@@ -227,7 +237,7 @@ export default function PlansView({
         />
       ) : plans.length === 0 ? (
         <p className="py-8 text-center text-sm opacity-60">
-          No plans yet. Create one (e.g. “อ่านหนังสือ X”) and add milestones with due dates.
+          ยังไม่มีแผน สร้างแผนหนึ่ง (เช่น “อ่านหนังสือ X”) แล้วเพิ่ม milestone พร้อมกำหนดวันที่
         </p>
       ) : (
         <>
@@ -236,9 +246,9 @@ export default function PlansView({
               value={scope}
               onChange={setScope}
               options={[
-                { value: "me", label: "Me" },
-                { value: "invited", label: "Invited" },
-                { value: "all", label: "All" },
+                { value: "me", label: "ของฉัน" },
+                { value: "invited", label: "ถูกเชิญ" },
+                { value: "all", label: "ทั้งหมด" },
               ]}
             />
             <span className="opacity-30">·</span>
@@ -246,14 +256,14 @@ export default function PlansView({
               value={period}
               onChange={setPeriod}
               options={[
-                { value: "current", label: "Current" },
-                { value: "past", label: "Past" },
-                { value: "all", label: "All" },
+                { value: "current", label: "ปัจจุบัน" },
+                { value: "past", label: "ผ่านมาแล้ว" },
+                { value: "all", label: "ทั้งหมด" },
               ]}
             />
           </div>
           {visiblePlans.length === 0 ? (
-            <p className="py-8 text-center text-sm opacity-60">No plans match this filter.</p>
+            <p className="py-8 text-center text-sm opacity-60">ไม่มีแผนตรงกับตัวกรองนี้</p>
           ) : (
             <ul className="space-y-2">
               {visiblePlans.map((p) => {
@@ -271,14 +281,14 @@ export default function PlansView({
                       {!isOwner(p) && (
                         <span
                           className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
-                          title={p.created_by ? `Invited by ${p.created_by}` : "Shared with you"}
+                          title={p.created_by ? `เชิญโดย ${p.created_by}` : "แชร์ให้คุณ"}
                         >
-                          invited
+                          ถูกเชิญ
                         </span>
                       )}
                       {p.status !== "active" && (
                         <span className="ml-2 rounded-full bg-black/10 px-2 py-0.5 text-xs dark:bg-white/15">
-                          {p.status}
+                          {p.status === "done" ? "เสร็จแล้ว" : p.status === "archived" ? "เก็บถาวร" : p.status}
                         </span>
                       )}
                     </button>
@@ -286,22 +296,22 @@ export default function PlansView({
                       <CollapsibleText text={p.description} className="text-sm opacity-70" lines={3} />
                     )}
                     {p.due_date && (
-                      <p className="text-xs opacity-60">🎯 due {formatBangkok(p.due_date)}</p>
+                      <p className="text-xs opacity-60">🎯 กำหนด {formatBangkok(p.due_date)}</p>
                     )}
                     <p className="mt-1 text-xs opacity-60">
-                      {ms.length} milestone{ms.length === 1 ? "" : "s"}
-                      {counts.done > 0 && ` · ${counts.done} done`}
+                      {ms.length} milestone
+                      {counts.done > 0 && ` · เสร็จแล้ว ${counts.done}`}
                       {counts.overdue > 0 && (
-                        <span className="text-red-600"> · ⚠️ {counts.overdue} overdue</span>
+                        <span className="text-red-600"> · ⚠️ เลยกำหนด {counts.overdue}</span>
                       )}
                       {counts.today > 0 && (
-                        <span className="text-amber-600"> · 🔔 {counts.today} due today</span>
+                        <span className="text-amber-600"> · 🔔 ครบกำหนดวันนี้ {counts.today}</span>
                       )}
                     </p>
                   </div>
                   <div className="flex gap-1.5">
                     <button onClick={() => setSelectedId(p.id)} className={btnGhost}>
-                      Open
+                      เปิด
                     </button>
                     {isOwner(p) && (
                       <>
@@ -312,10 +322,10 @@ export default function PlansView({
                           }}
                           className={btnGhost}
                         >
-                          Edit
+                          แก้ไข
                         </button>
                         <button onClick={() => deletePlan(p)} className={btnGhost}>
-                          Delete
+                          ลบ
                         </button>
                       </>
                     )}
@@ -358,8 +368,8 @@ function announceDue(ms: Milestone[]) {
   const { overdue, today } = summarize(ms);
   if (overdue === 0 && today === 0) return;
   const parts: string[] = [];
-  if (overdue) parts.push(`${overdue} overdue`);
-  if (today) parts.push(`${today} due today`);
+  if (overdue) parts.push(`เลยกำหนด ${overdue}`);
+  if (today) parts.push(`ครบกำหนดวันนี้ ${today}`);
   Swal.fire({
     toast: true,
     position: "top-end",
@@ -394,12 +404,12 @@ function PlanForm({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim()) return setError("Title is required.");
+    if (!title.trim()) return setError("กรุณากรอกชื่อแผน");
     // The server normalizes/validates emails; split loosely here, but reject
     // non-gmail addresses up front so they aren't silently dropped on save.
     const invitees = inviteesRaw.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
     const badEmail = invitees.find((e) => !isGmail(e));
-    if (badEmail) return setError(`"${badEmail}" must be a @gmail.com address — sign-in uses Google.`);
+    if (badEmail) return setError(`"${badEmail}" ต้องเป็นอีเมล @gmail.com — การเข้าสู่ระบบใช้ Google`);
     onSave(
       {
         title: title.trim(),
@@ -413,24 +423,24 @@ function PlanForm({
 
   return (
     <form onSubmit={submit} className="space-y-3">
-      <h2 className="text-lg font-semibold">{initial ? "Edit plan" : "New plan"}</h2>
+      <h2 className="text-lg font-semibold">{initial ? "แก้ไขแผน" : "แผนใหม่"}</h2>
       <label className="block text-sm">
-        <span className="opacity-70">Title (e.g. “อ่านหนังสือ X”)</span>
+        <span className="opacity-70">ชื่อแผน (เช่น “อ่านหนังสือ X”)</span>
         <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} />
       </label>
       <label className="block text-sm">
-        <span className="opacity-70">Description (optional)</span>
+        <span className="opacity-70">รายละเอียด (ไม่บังคับ)</span>
         <textarea className={inputCls} rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
       </label>
       <label className="block text-sm">
-        <span className="opacity-70">Overall due date (Asia/Bangkok — optional)</span>
+        <span className="opacity-70">กำหนดวันเสร็จโดยรวม (Asia/Bangkok — ไม่บังคับ)</span>
         <DateTimePicker value={localDue} onChange={setLocalDue} />
         <span className="mt-1 block text-xs opacity-60">
-          Milestones can&apos;t be scheduled after this date.
+          Milestone จะกำหนดวันเกินวันนี้ไม่ได้
         </span>
       </label>
       <label className="block text-sm">
-        <span className="opacity-70">Share with (emails, comma-separated — optional)</span>
+        <span className="opacity-70">แชร์ให้ (อีเมล คั่นด้วยจุลภาค — ไม่บังคับ)</span>
         <input
           className={inputCls}
           value={inviteesRaw}
@@ -445,14 +455,14 @@ function PlanForm({
           disabled={busy}
           className="rounded-lg bg-pink-600 px-4 py-2 font-medium text-white disabled:opacity-50"
         >
-          {busy ? "Saving…" : initial ? "Save changes" : "Create plan"}
+          {busy ? "กำลังบันทึก…" : initial ? "บันทึกการเปลี่ยนแปลง" : "สร้างแผน"}
         </button>
         <button
           type="button"
           onClick={onCancel}
           className="rounded-lg border border-black/15 dark:border-white/25 px-4 py-2"
         >
-          Cancel
+          ยกเลิก
         </button>
       </div>
     </form>

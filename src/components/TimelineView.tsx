@@ -11,6 +11,7 @@ import Attachments from "./Attachments";
 import CollapsibleText from "./CollapsibleText";
 
 type MilestoneState = "done" | "overdue" | "today" | "upcoming";
+const FOCUS_PREVIEW_LIMIT = 8;
 
 // Derive the display state of a milestone (or dated checkpoint) from its dates.
 function milestoneState(due: string, done: boolean): MilestoneState {
@@ -267,6 +268,37 @@ export default function TimelineView({
     return { overdue, today };
   }, [ordered]);
 
+  const focusCheckpoints = useMemo(() => {
+    const list: Array<{
+      milestone: Milestone;
+      checkpoint: Checkpoint;
+      due: string;
+      state: MilestoneState;
+      beforeMilestone: boolean;
+      weight: number;
+    }> = [];
+    for (const m of ordered) {
+      for (const c of m.checkpoints) {
+        if (c.done) continue;
+        const due = checkpointEffectiveDueDate(c, m.due_date);
+        const state = milestoneState(due, false);
+        const beforeMilestone =
+          !!c.due_date &&
+          !Number.isNaN(Date.parse(c.due_date)) &&
+          Date.parse(c.due_date) < Date.parse(m.due_date);
+        const weight = state === "overdue" ? 0 : state === "today" ? 1 : beforeMilestone ? 2 : 3;
+        list.push({ milestone: m, checkpoint: c, due, state, beforeMilestone, weight });
+      }
+    }
+    return list.sort((a, b) => {
+      if (a.weight !== b.weight) return a.weight - b.weight;
+      const aDue = Date.parse(a.due);
+      const bDue = Date.parse(b.due);
+      if (!Number.isNaN(aDue) && !Number.isNaN(bDue) && aDue !== bDue) return aDue - bDue;
+      return a.checkpoint.title.localeCompare(b.checkpoint.title, "th");
+    });
+  }, [ordered]);
+
   // PUT an action to a milestone and reflect the returned record locally.
   // Returns the updated milestone, or null if the request failed.
   async function mutate(
@@ -478,6 +510,51 @@ export default function TimelineView({
             }}
           />
         </div>
+      )}
+
+      {focusCheckpoints.length > 0 && (
+        <section className="rounded-xl border border-pink-500/30 bg-pink-50/40 p-3 dark:border-pink-400/25 dark:bg-pink-950/20">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold">🎯 ต้องโฟกัสตอนนี้ (Checkpoint)</h3>
+            <span className="text-xs opacity-60">{focusCheckpoints.length} รายการที่ยังไม่เสร็จ</span>
+          </div>
+          <ul className="space-y-1.5">
+            {focusCheckpoints.slice(0, FOCUS_PREVIEW_LIMIT).map((item) => {
+              const pill = STATE_PILL[item.state];
+              const cp = item.checkpoint;
+              const cpKey = cp.id || `${item.milestone.id}:${cp.title}`;
+              return (
+                <li
+                  key={cpKey}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-black/10 bg-white/75 px-2.5 py-2 text-sm dark:border-white/15 dark:bg-zinc-900/60"
+                >
+                  <input
+                    type="checkbox"
+                    checked={cp.done}
+                    disabled={busy || !cp.id}
+                    onChange={() => toggleCheckpoint(item.milestone, cp.id)}
+                    title={cp.id ? "เช็คเสร็จ" : "checkpoint นี้ยังไม่มี id จึงยังเช็คจากลิสต์นี้ไม่ได้"}
+                  />
+                  <span className="font-medium">{cp.title}</span>
+                  <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200">
+                    {item.milestone.title}
+                  </span>
+                  <span className={`rounded-full px-2 py-0.5 text-xs ${pill.cls}`}>{pill.label}</span>
+                  {item.beforeMilestone && (
+                    <span className="rounded-full bg-pink-100 px-2 py-0.5 text-xs text-pink-800 dark:bg-pink-900/40 dark:text-pink-200">
+                      โฟกัสก่อน milestone
+                    </span>
+                  )}
+                  <span className="text-xs opacity-60">· {formatBangkok(item.due)}</span>
+                  <Countdown due={item.due} done={false} />
+                </li>
+              );
+            })}
+          </ul>
+          {focusCheckpoints.length > FOCUS_PREVIEW_LIMIT && (
+            <p className="mt-2 text-xs opacity-60">และอีก {focusCheckpoints.length - FOCUS_PREVIEW_LIMIT} รายการใน milestone ด้านล่าง</p>
+          )}
+        </section>
       )}
 
       {ordered.length === 0 ? (

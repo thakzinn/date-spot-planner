@@ -291,11 +291,10 @@ export default function TimelineView({
         if (c.done) continue;
         const due = checkpointEffectiveDueDate(c, m.due_date);
         const dueTime = Date.parse(due);
-        if (Number.isNaN(dueTime) || dueTime >= nextMilestoneDue) continue;
+        if (Number.isNaN(dueTime) || dueTime > nextMilestoneDue) continue;
+        const milestoneDue = Date.parse(m.due_date);
         const beforeMilestone =
-          !!c.due_date &&
-          !Number.isNaN(Date.parse(c.due_date)) &&
-          Date.parse(c.due_date) < Date.parse(m.due_date);
+          !Number.isNaN(milestoneDue) && dueTime <= milestoneDue;
         if (!beforeMilestone) continue;
         const state = milestoneState(due, false);
         const weight = state === "overdue" ? 0 : state === "today" ? 1 : beforeMilestone ? 2 : 3;

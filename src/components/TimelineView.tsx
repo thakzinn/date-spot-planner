@@ -278,12 +278,14 @@ export default function TimelineView({
 
   const focusCheckpoints = useMemo(() => {
     if (nextMilestoneDue == null) return [];
+    const nextMilestoneDay = bangkokDateStr(new Date(nextMilestoneDue));
     const list: Array<{
       milestone: Milestone;
       checkpoint: Checkpoint;
       due: string;
       state: MilestoneState;
       beforeMilestone: boolean;
+      sameDayAsMilestone: boolean;
       weight: number;
     }> = [];
     for (const m of ordered) {
@@ -291,14 +293,18 @@ export default function TimelineView({
         if (c.done) continue;
         const due = checkpointEffectiveDueDate(c, m.due_date);
         const dueTime = Date.parse(due);
-        if (Number.isNaN(dueTime) || dueTime > nextMilestoneDue) continue;
+        if (Number.isNaN(dueTime)) continue;
+        const dueDay = bangkokDateStr(new Date(dueTime));
+        if (dueDay > nextMilestoneDay) continue;
         const milestoneDue = Date.parse(m.due_date);
-        const beforeMilestone =
-          !Number.isNaN(milestoneDue) && dueTime <= milestoneDue;
+        if (Number.isNaN(milestoneDue)) continue;
+        const milestoneDay = bangkokDateStr(new Date(milestoneDue));
+        const beforeMilestone = dueDay <= milestoneDay;
+        const sameDayAsMilestone = dueDay === milestoneDay;
         if (!beforeMilestone) continue;
         const state = milestoneState(due, false);
         const weight = state === "overdue" ? 0 : state === "today" ? 1 : beforeMilestone ? 2 : 3;
-        list.push({ milestone: m, checkpoint: c, due, state, beforeMilestone, weight });
+        list.push({ milestone: m, checkpoint: c, due, state, beforeMilestone, sameDayAsMilestone, weight });
       }
     }
     return list.sort((a, b) => {
@@ -554,6 +560,11 @@ export default function TimelineView({
                   {item.beforeMilestone && (
                     <span className="rounded-full bg-pink-100 px-2 py-0.5 text-xs text-pink-800 dark:bg-pink-900/40 dark:text-pink-200">
                       โฟกัสก่อน milestone
+                    </span>
+                  )}
+                  {item.sameDayAsMilestone && (
+                    <span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-xs text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-200">
+                      วันเดียวกับ milestone
                     </span>
                   )}
                   <span className="text-xs opacity-60">· {formatBangkok(item.due)}</span>

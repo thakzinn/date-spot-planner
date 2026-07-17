@@ -268,7 +268,16 @@ export default function TimelineView({
     return { overdue, today };
   }, [ordered]);
 
+  const nextMilestoneDue = useMemo(() => {
+    const next = ordered.find((m) => m.status !== "done");
+    if (!next) return null;
+    const due = Date.parse(next.due_date);
+    if (Number.isNaN(due)) return null;
+    return due;
+  }, [ordered]);
+
   const focusCheckpoints = useMemo(() => {
+    if (nextMilestoneDue == null) return [];
     const list: Array<{
       milestone: Milestone;
       checkpoint: Checkpoint;
@@ -281,6 +290,8 @@ export default function TimelineView({
       for (const c of m.checkpoints) {
         if (c.done) continue;
         const due = checkpointEffectiveDueDate(c, m.due_date);
+        const dueTime = Date.parse(due);
+        if (Number.isNaN(dueTime) || dueTime >= nextMilestoneDue) continue;
         const beforeMilestone =
           !!c.due_date &&
           !Number.isNaN(Date.parse(c.due_date)) &&
@@ -298,7 +309,7 @@ export default function TimelineView({
       if (!Number.isNaN(aDue) && !Number.isNaN(bDue) && aDue !== bDue) return aDue - bDue;
       return a.checkpoint.title.localeCompare(b.checkpoint.title, "th");
     });
-  }, [ordered]);
+  }, [ordered, nextMilestoneDue]);
 
   // PUT an action to a milestone and reflect the returned record locally.
   // Returns the updated milestone, or null if the request failed.

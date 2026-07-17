@@ -177,6 +177,8 @@ export default function TimelineView({
   const [notifyMembers, setNotifyMembers] = useState(false);
   // Which checkpoint's inline date editor is open (by checkpoint id), or null.
   const [openCheckpoint, setOpenCheckpoint] = useState<string | null>(null);
+  // Per-milestone checkpoint list visibility. Done milestones default to hidden.
+  const [showCheckpoints, setShowCheckpoints] = useState<Record<string, boolean>>({});
 
   // People who can be assigned to a milestone/checkpoint: the plan creator plus
   // everyone invited, lowercased and de-duped (so the picker matches the emails
@@ -482,6 +484,19 @@ export default function TimelineView({
     );
   }
 
+  function checkpointsVisible(m: Milestone): boolean {
+    const current = showCheckpoints[m.id];
+    if (typeof current === "boolean") return current;
+    return m.status !== "done";
+  }
+
+  function toggleCheckpointPanel(m: Milestone) {
+    setShowCheckpoints((prev) => {
+      const current = typeof prev[m.id] === "boolean" ? prev[m.id] : m.status !== "done";
+      return { ...prev, [m.id]: !current };
+    });
+  }
+
   async function onDelete(m: Milestone) {
     const c = await Swal.fire({
         title: "ลบ milestone นี้?",
@@ -657,6 +672,7 @@ export default function TimelineView({
             const early =
               m.status === "done" && m.done_at && Date.parse(m.done_at) < Date.parse(m.due_date);
             const doneCount = m.checkpoints.filter((c) => c.done).length;
+            const isCheckpointPanelOpen = checkpointsVisible(m);
             const sortedCheckpoints = [...m.checkpoints].sort((a, b) => {
               const weight = checkpointSortWeight(a, m.due_date) - checkpointSortWeight(b, m.due_date);
               if (weight !== 0) return weight;
@@ -743,70 +759,84 @@ export default function TimelineView({
                   </div>
 
                   {m.checkpoints.length > 0 && (
-                    <ul className="mt-2 space-y-1 border-t border-black/5 pt-2 dark:border-white/10">
-                      {sortedCheckpoints.map((c) => {
-                        const cpDue = checkpointEffectiveDueDate(c, m.due_date);
-                        const cpState = milestoneState(cpDue, c.done);
-                        const cpPill = STATE_PILL[cpState];
-                        const beforeMilestone =
-                          !!c.due_date &&
-                          !Number.isNaN(Date.parse(c.due_date)) &&
-                          Date.parse(c.due_date) < Date.parse(m.due_date);
-                        return (
-                        <li key={c.id} className="text-sm">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={c.done}
-                              disabled={busy}
-                              onChange={() => toggleCheckpoint(m, c.id)}
-                            />
-                            {/* Click the title to reveal inline date controls. */}
-                            <button
-                              type="button"
-                              onClick={() => setOpenCheckpoint((id) => (id === c.id ? null : c.id))}
-                              title="คลิกเพื่อปรับวันที่"
-                              className={`text-left hover:underline ${c.done ? "line-through opacity-60" : ""}`}
-                            >
-                              {c.title}
-                            </button>
-                            <span className={`rounded-full px-2 py-0.5 text-[11px] ${cpPill.cls}`}>{cpPill.label}</span>
-                            {beforeMilestone && !c.done && (
-                              <span className="rounded-full bg-pink-100 px-2 py-0.5 text-[11px] text-pink-800 dark:bg-pink-900/40 dark:text-pink-200">
-                                โฟกัสก่อน milestone
-                              </span>
-                            )}
-                            {c.due_date && <span className="text-xs opacity-50">· {formatBangkok(c.due_date)}</span>}
-                            {c.due_date && <Countdown due={c.due_date} done={c.done} />}
-                            {c.assignees.length > 0 && <AssigneeChips emails={c.assignees} />}
-                            {c.done && c.done_at && (
-                              <span className="text-xs text-green-600">✓ เช็ค {formatBangkok(c.done_at)}</span>
-                            )}
-                          </div>
-                          {openCheckpoint === c.id && (
-                            <div className="ms-6 mt-1 flex flex-wrap items-center gap-1.5">
-                              <span className="text-xs opacity-50">ปรับวันที่:</span>
-                              <button onClick={() => shiftCheckpoint(m, c, -7)} disabled={busy} className={btnGhost}>
-                                  -1 สัปดาห์
-                              </button>
-                              <button onClick={() => shiftCheckpoint(m, c, -1)} disabled={busy} className={btnGhost}>
-                                  -1 วัน
-                              </button>
-                              <button onClick={() => shiftCheckpoint(m, c, 1)} disabled={busy} className={btnGhost}>
-                                  +1 วัน
-                              </button>
-                              <button onClick={() => shiftCheckpoint(m, c, 7)} disabled={busy} className={btnGhost}>
-                                  +1 สัปดาห์
-                              </button>
-                            </div>
-                          )}
-                        </li>
-                        );
-                      })}
-                      <li className="pt-1 text-xs opacity-50">
-                        {doneCount}/{m.checkpoints.length} checkpoint เสร็จแล้ว
-                      </li>
-                    </ul>
+                    <div className="mt-2 border-t border-black/5 pt-2 dark:border-white/10">
+                      <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                        <span className="opacity-60">
+                          {doneCount}/{m.checkpoints.length} checkpoint เสร็จแล้ว
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => toggleCheckpointPanel(m)}
+                          className={btnGhost}
+                        >
+                          {isCheckpointPanelOpen ? "ซ่อน task ย่อย" : "แสดง task ย่อย"}
+                        </button>
+                      </div>
+
+                      {isCheckpointPanelOpen && (
+                        <ul className="space-y-1">
+                          {sortedCheckpoints.map((c) => {
+                            const cpDue = checkpointEffectiveDueDate(c, m.due_date);
+                            const cpState = milestoneState(cpDue, c.done);
+                            const cpPill = STATE_PILL[cpState];
+                            const beforeMilestone =
+                              !!c.due_date &&
+                              !Number.isNaN(Date.parse(c.due_date)) &&
+                              Date.parse(c.due_date) < Date.parse(m.due_date);
+                            return (
+                            <li key={c.id} className="text-sm">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={c.done}
+                                  disabled={busy}
+                                  onChange={() => toggleCheckpoint(m, c.id)}
+                                />
+                                {/* Click the title to reveal inline date controls. */}
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenCheckpoint((id) => (id === c.id ? null : c.id))}
+                                  title="คลิกเพื่อปรับวันที่"
+                                  className={`text-left hover:underline ${c.done ? "line-through opacity-60" : ""}`}
+                                >
+                                  {c.title}
+                                </button>
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] ${cpPill.cls}`}>{cpPill.label}</span>
+                                {beforeMilestone && !c.done && (
+                                  <span className="rounded-full bg-pink-100 px-2 py-0.5 text-[11px] text-pink-800 dark:bg-pink-900/40 dark:text-pink-200">
+                                    โฟกัสก่อน milestone
+                                  </span>
+                                )}
+                                {c.due_date && <span className="text-xs opacity-50">· {formatBangkok(c.due_date)}</span>}
+                                {c.due_date && <Countdown due={c.due_date} done={c.done} />}
+                                {c.assignees.length > 0 && <AssigneeChips emails={c.assignees} />}
+                                {c.done && c.done_at && (
+                                  <span className="text-xs text-green-600">✓ เช็ค {formatBangkok(c.done_at)}</span>
+                                )}
+                              </div>
+                              {openCheckpoint === c.id && (
+                                <div className="ms-6 mt-1 flex flex-wrap items-center gap-1.5">
+                                  <span className="text-xs opacity-50">ปรับวันที่:</span>
+                                  <button onClick={() => shiftCheckpoint(m, c, -7)} disabled={busy} className={btnGhost}>
+                                      -1 สัปดาห์
+                                  </button>
+                                  <button onClick={() => shiftCheckpoint(m, c, -1)} disabled={busy} className={btnGhost}>
+                                      -1 วัน
+                                  </button>
+                                  <button onClick={() => shiftCheckpoint(m, c, 1)} disabled={busy} className={btnGhost}>
+                                      +1 วัน
+                                  </button>
+                                  <button onClick={() => shiftCheckpoint(m, c, 7)} disabled={busy} className={btnGhost}>
+                                      +1 สัปดาห์
+                                  </button>
+                                </div>
+                              )}
+                            </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
                   )}
 
                   {attachments !== null && (

@@ -67,6 +67,7 @@ export default function Attachments({
   const [loading, setLoading] = useState(initial === undefined);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -119,6 +120,7 @@ export default function Attachments({
         return;
       }
       setItems((prev) => [data.attachment as AttachmentPublic, ...prev]);
+      setExpanded(true);
       showSuccess("แนบไฟล์แล้ว");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "อัปโหลดไม่สำเร็จ";
@@ -228,6 +230,13 @@ export default function Attachments({
     <div className={`text-sm ${className}`}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="opacity-70">📎 ไฟล์แนบ{items.length > 0 ? ` (${items.length})` : ""}</span>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="rounded-lg border border-black/15 px-2.5 py-1 text-xs dark:border-white/25"
+        >
+          {expanded ? "ซ่อนไฟล์" : "แสดงไฟล์"}
+        </button>
         {canEdit && (
           <>
             <input
@@ -251,77 +260,78 @@ export default function Attachments({
 
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
 
-      {loading ? (
-        <p className="mt-1 text-xs opacity-50">กำลังโหลด…</p>
-      ) : items.length === 0 ? (
-        <p className="mt-1 text-xs opacity-50">ยังไม่มีไฟล์แนบ</p>
-      ) : (
-        <ul className="mt-2 space-y-1.5">
-          {items.map((a) => {
-            const href = `/api/attachments/${a.id}/content`;
-            const isImage = a.mime_type.startsWith("image/");
-            return (
-              <li
-                key={a.id}
-                className="flex items-center gap-2 rounded-lg border border-black/10 p-1.5 dark:border-white/15"
-              >
-                <button
-                  type="button"
-                  onClick={() => openFile(a, false)}
-                  className="shrink-0"
-                  aria-label={`เปิด ${a.name}`}
+      {expanded &&
+        (loading ? (
+          <p className="mt-1 text-xs opacity-50">กำลังโหลด…</p>
+        ) : items.length === 0 ? (
+          <p className="mt-1 text-xs opacity-50">ยังไม่มีไฟล์แนบ</p>
+        ) : (
+          <ul className="mt-2 space-y-1.5">
+            {items.map((a) => {
+              const href = `/api/attachments/${a.id}/content`;
+              const isImage = a.mime_type.startsWith("image/");
+              return (
+                <li
+                  key={a.id}
+                  className="flex items-center gap-2 rounded-lg border border-black/10 p-1.5 dark:border-white/15"
                 >
-                  {isImage ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={href}
-                      alt={a.name}
-                      className="h-10 w-10 rounded object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <span className="flex h-10 w-10 items-center justify-center rounded bg-black/5 text-lg dark:bg-white/10">
-                      📄
-                    </span>
-                  )}
-                </button>
-                <div className="min-w-0 flex-1">
                   <button
                     type="button"
                     onClick={() => openFile(a, false)}
-                    className="block w-full truncate text-left hover:underline"
-                    title={a.name}
+                    className="shrink-0"
+                    aria-label={`เปิด ${a.name}`}
                   >
-                    {shortName(a.name)}
+                    {isImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={href}
+                        alt={a.name}
+                        className="h-10 w-10 rounded object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span className="flex h-10 w-10 items-center justify-center rounded bg-black/5 text-lg dark:bg-white/10">
+                        📄
+                      </span>
+                    )}
                   </button>
-                  <span className="text-xs opacity-50">
-                    {formatSize(a.size)} · @{a.uploaded_by.split("@")[0]}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => openFile(a, true)}
-                  className="shrink-0 rounded-lg border border-black/15 px-2 py-1 text-xs dark:border-white/25"
-                  title="ดาวน์โหลด"
-                  aria-label={`ดาวน์โหลด ${a.name}`}
-                >
-                  ⬇
-                </button>
-                {canEdit && (
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      onClick={() => openFile(a, false)}
+                      className="block w-full truncate text-left hover:underline"
+                      title={a.name}
+                    >
+                      {shortName(a.name)}
+                    </button>
+                    <span className="text-xs opacity-50">
+                      {formatSize(a.size)} · @{a.uploaded_by.split("@")[0]}
+                    </span>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => remove(a)}
-                    aria-label={`ลบ ${a.name}`}
+                    onClick={() => openFile(a, true)}
                     className="shrink-0 rounded-lg border border-black/15 px-2 py-1 text-xs dark:border-white/25"
+                    title="ดาวน์โหลด"
+                    aria-label={`ดาวน์โหลด ${a.name}`}
                   >
-                    ×
+                    ⬇
                   </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => remove(a)}
+                      aria-label={`ลบ ${a.name}`}
+                      className="shrink-0 rounded-lg border border-black/15 px-2 py-1 text-xs dark:border-white/25"
+                    >
+                      ×
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        ))}
     </div>
   );
 }

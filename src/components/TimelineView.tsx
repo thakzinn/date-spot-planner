@@ -102,6 +102,52 @@ const btnPrimary = "rounded-lg bg-pink-600 px-2.5 py-1 text-xs font-medium text-
 const btnGhost =
   "rounded-lg border border-black/15 dark:border-white/25 px-2.5 py-1 text-xs disabled:opacity-50";
 
+// Defers rendering its children until the element is within 300 px of the
+// visible area of its scroll container. The wrapper div is always in the DOM
+// (so offsetTop measurements on the parent <li> stay correct), but the heavy
+// inner content — Countdown setInterval calls, attachment panels, checkpoint
+// lists — is not mounted until the card is actually about to appear.
+//
+// IMPORTANT: We must pass the nearest scrollable ancestor as the IO `root`.
+// Without it the IO uses the document viewport, which sees every item inside
+// a nested `overflow-y-auto` div as "intersecting" (they're in the viewport,
+// just clipped), causing everything to load immediately on mount.
+function LazyCard({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Walk up the DOM to find the nearest scrollable container.
+    let root: HTMLElement | null = el.parentElement;
+    while (root && root !== document.body) {
+      const { overflowY } = window.getComputedStyle(root);
+      if (overflowY === "auto" || overflowY === "scroll") break;
+      root = root.parentElement;
+    }
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setLoaded(true);
+          io.disconnect();
+        }
+      },
+      { root: root ?? null, rootMargin: "300px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <div ref={ref}>
+      {loaded ? (
+        children
+      ) : (
+        <div className="h-24 animate-pulse rounded-xl bg-black/5 dark:bg-white/5" />
+      )}
+    </div>
+  );
+}
+
 export default function TimelineView({
   plan,
   isOwner,
@@ -635,6 +681,7 @@ export default function TimelineView({
                   {formatBangkok(m.due_date)}
                 </div>
 
+                <LazyCard>
                 <div className="rounded-xl border border-black/10 bg-white p-3 shadow-sm dark:border-white/15 dark:bg-zinc-900">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{m.title}</span>
@@ -772,6 +819,7 @@ export default function TimelineView({
                     </div>
                   )}
                 </div>
+                </LazyCard>
               </li>
             );
           })}
